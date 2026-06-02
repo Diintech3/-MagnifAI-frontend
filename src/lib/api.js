@@ -1,7 +1,17 @@
+const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || "").trim().replace(/\/$/, "");
+
+function withBase(path) {
+  if (!path) return API_BASE_URL || "";
+  if (/^https?:\/\//i.test(path)) return path;
+  if (!API_BASE_URL) return path;
+  return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 function wrapNetworkError(err) {
   const msg = String(err?.message || "");
   if (err?.name === "TypeError" || msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
-    const e = new Error("Cannot reach API server. Start backend: cd backend && node index.js (port 4000)");
+    const target = API_BASE_URL || "Vite proxy (/api -> localhost:4000)";
+    const e = new Error(`Cannot reach API server (${target}).`);
     e.code = "BACKEND_UNREACHABLE";
     e.cause = err;
     return e;
@@ -12,7 +22,7 @@ function wrapNetworkError(err) {
 export async function api(path, { method = "GET", body, token } = {}) {
   let res;
   try {
-    res = await fetch(path, {
+    res = await fetch(withBase(path), {
       method,
       headers: {
         "Content-Type": "application/json",
@@ -36,7 +46,7 @@ export async function api(path, { method = "GET", body, token } = {}) {
 export async function apiForm(path, { method = "POST", token, formData } = {}) {
   let res;
   try {
-    res = await fetch(path, {
+    res = await fetch(withBase(path), {
       method,
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
