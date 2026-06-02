@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthProvider";
 import { api } from "../../lib/api";
 import { toastFromError } from "../../lib/toast";
@@ -224,15 +225,15 @@ export function ElectionWinnersPanel({ searchParams, onSearchParamsChange }) {
                     <tr key={`${r.acNo}-${r.acName}`} className="border-t border-amber-100/70 hover:bg-amber-50/60">
                       <td className="px-3 py-2 tabular-nums text-stone-700">{r.acNo}</td>
                       <td className="px-3 py-2 font-medium text-emerald-950">
-                        <a className="text-teal-900 hover:underline" href={detailHref}>
+                        <Link className="text-teal-900 hover:underline" to={detailHref}>
                           {r.acName}
-                        </a>
+                        </Link>
                       </td>
                       <td className="px-3 py-2 text-stone-700">{r.district || "—"}</td>
                       <td className="px-3 py-2 text-stone-800">
-                        <a className="hover:underline" href={detailHref}>
+                        <Link className="hover:underline" to={detailHref}>
                           {r.candidate || "—"}
-                        </a>
+                        </Link>
                       </td>
                       <td className="px-3 py-2">
                         <span className={`rounded px-1.5 py-0.5 text-xs font-semibold text-white ${PARTY_CHIP[r.party] || PARTY_CHIP.Others}`}>

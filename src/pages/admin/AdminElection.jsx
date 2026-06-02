@@ -254,7 +254,7 @@ export function AdminElection() {
             }}
             className="rounded-t-lg border border-b-0 border-transparent bg-[#f0e6dc] px-6 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-rose-100/60 hover:text-rose-900"
           >
-            Defeated ↗
+            Winners & Defeated ↗
           </button>
           <button
             type="button"

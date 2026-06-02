@@ -135,10 +135,10 @@ export function ElectionDefeatsPanel({
   if (stateCode !== "UP") {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-8 text-center text-sm text-amber-950">
-        <p className="font-semibold">Uttar Pradesh select karein</p>
+        <p className="font-semibold">Select Uttar Pradesh</p>
         <p className="mt-2">
-          Haré / defeated candidates ki poori list sirf <strong>UP</strong> ke liye hai. Upar se {stateName || stateCode}{" "}
-          ki jagah UP chunein.
+          Detailed defeated-candidate data is currently available for <strong>UP</strong> only. Switch from{" "}
+          {stateName || stateCode} to Uttar Pradesh.
         </p>
       </div>
     );
@@ -150,7 +150,7 @@ export function ElectionDefeatsPanel({
     <div className={fullPage ? "flex min-h-0 flex-1 flex-col gap-4" : "space-y-5"}>
       {!fullPage ? (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950">
-          <strong>Defeated elections</strong> — jo candidate / party seat nahi jeeti, unki poori detail.{" "}
+          <strong>Defeated candidates</strong> — full non-winning candidate details with winner and margin.{" "}
           <Link to={fullPageHref} className="font-semibold text-rose-800 underline hover:text-rose-950">
             Open full page ↗
           </Link>

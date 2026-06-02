@@ -33,7 +33,7 @@ export function DashboardShell({ portalLabel, loginPath, navItems, children, fla
     return null;
   })();
   const pageTitle = location.pathname.includes("/election/defeated")
-    ? "Defeated candidates (UP)"
+    ? "Winners & Defeated (UP)"
     : activeItem?.headerTitle || activeItem?.label || "Dashboard";
   const portalShort = portalLabel.includes("SUPER")
     ? "SA"

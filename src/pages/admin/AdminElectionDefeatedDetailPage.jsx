@@ -94,7 +94,8 @@ function CandidateProfileCard({ title, candidate, party, profile }) {
         </div>
       ) : (
         <div className="mt-3 text-sm text-stone-700">
-          Add profile data in <code className="rounded bg-amber-100 px-1">backend/data/candidate-profiles/</code> to show phone, address, and socials.
+          This information is not present in the election result dataset. Add profile data in{" "}
+          <code className="rounded bg-amber-100 px-1">backend/data/candidate-profiles/</code> to show phone, address, and social links.
         </div>
       )}
     </div>
@@ -154,7 +155,7 @@ export function AdminElectionDefeatedDetailPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <Link to={backHref} className="text-sm font-medium text-teal-800 hover:text-teal-950 hover:underline">
-              ← Back to Defeated list
+              ← Back to Winners & Defeated list
             </Link>
             <h1 className="mt-1 text-xl font-bold tracking-tight text-emerald-950 sm:text-2xl">
               Seat detail — {data?.seatName ? data.seatName : `#${seatNo}`}
@@ -236,6 +237,11 @@ export function AdminElectionDefeatedDetailPage() {
                 party={(data.contestants || []).find((c) => c.highlighted)?.party || ""}
                 profile={(data.contestants || []).find((c) => c.highlighted)?.profile || null}
               />
+            </div>
+
+            <div className="rounded-xl border border-amber-200/80 bg-[#fff7ec] px-4 py-3 text-sm text-stone-700">
+              <span className="font-semibold text-amber-900">Data note:</span> votes, percentages, party, rank and margin come
+              from election results. Personal/contact/social details are optional profile records.
             </div>
 
             <div className="overflow-hidden rounded-xl border border-amber-200/80 bg-[#faf6f0] shadow-sm">
