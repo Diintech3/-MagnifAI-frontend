@@ -5,6 +5,7 @@ import { AdminApps } from "./admin/AdminApps";
 import { AdminElection } from "./admin/AdminElection";
 import { AdminElectionDefeatedPage } from "./admin/AdminElectionDefeatedPage";
 import { AdminElectionDefeatedDetailPage } from "./admin/AdminElectionDefeatedDetailPage";
+import { ConstituencyDetailPage } from "./admin/ConstituencyDetailPage";
 
 export function AdminDashboard() {
   return (
@@ -36,8 +37,10 @@ export function AdminDashboard() {
       <Routes>
         <Route index element={<AdminOverview />} />
         <Route path="apps" element={<AdminApps />} />
+        <Route path="election/constituency/:bodyType/:year/seat/:seatNo" element={<ConstituencyDetailPage />} />
         <Route path="election/defeated/:bodyType/:year/seat/:seatNo" element={<AdminElectionDefeatedDetailPage />} />
         <Route path="election/defeated" element={<AdminElectionDefeatedPage />} />
+        <Route path="election/results" element={<AdminElectionDefeatedPage />} />
         <Route path="election" element={<AdminElection />} />
       </Routes>
     </DashboardShell>

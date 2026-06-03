@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthProvider";
 import { api } from "../../lib/api";
 import { toastFromError } from "../../lib/toast";
@@ -58,54 +59,68 @@ function WardBreakdownBar({ wardBreakdown }) {
 function ResultsTable({ rows, bodyType, year, stateName }) {
   const isMunicipal = bodyType === "MUNICIPAL";
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-100 bg-[#eb7f2b] px-5 py-3">
-        <h3 className="text-center text-sm font-semibold uppercase text-white">
-          {stateName || "Uttar Pradesh"} — {isMunicipal ? "17 Nagar Nigam mayor results" : "Constituency wise winner results"} ({year})
+    <div className="overflow-hidden rounded-2xl border border-amber-200/80 bg-white shadow-sm">
+      <div className="flex items-center justify-between border-b border-amber-200/60 bg-teal-800 px-5 py-3">
+        <h3 className="text-sm font-bold uppercase tracking-wide text-white">
+          {stateName || "Uttar Pradesh"} — {isMunicipal ? "Nagar Nigam Mayor Results" : "Constituency Winners"} ({year})
         </h3>
+        <span className="rounded-full bg-teal-700 px-3 py-0.5 text-xs font-semibold text-white">{rows.length} seats</span>
       </div>
-      <div className="max-h-[420px] overflow-auto">
+      <div className="max-h-[480px] overflow-auto">
         <table className="w-full min-w-[640px] text-left text-sm">
-          <thead className="sticky top-0 bg-slate-50 text-xs uppercase text-slate-500">
+          <thead className="sticky top-0 z-10 bg-[#f0ece4] text-[11px] font-semibold uppercase tracking-wide text-stone-600">
             <tr>
-              <th className="px-3 py-2">#</th>
-              <th className="px-3 py-2">{isMunicipal ? "Nagar Nigam" : "Constituency"}</th>
-              <th className="px-3 py-2">District</th>
-              <th className="px-3 py-2">Winner</th>
-              <th className="px-3 py-2">Party</th>
-              {!isMunicipal ? <th className="px-3 py-2 text-right">Votes</th> : null}
-              {!isMunicipal ? <th className="px-3 py-2 text-right">%</th> : null}
-              {isMunicipal ? <th className="px-3 py-2 text-right">Wards</th> : null}
-              {isMunicipal ? <th className="px-3 py-2">Ward split (BJP/SP/BSP/INC)</th> : null}
+              <th className="px-4 py-3">#</th>
+              <th className="px-4 py-3">{isMunicipal ? "Nagar Nigam" : "Constituency"}</th>
+              <th className="px-4 py-3">District</th>
+              <th className="px-4 py-3">Winner</th>
+              <th className="px-4 py-3">Party</th>
+              {!isMunicipal ? <th className="px-4 py-3 text-right">Votes</th> : null}
+              {!isMunicipal ? <th className="px-4 py-3 text-right">%</th> : null}
+              {isMunicipal ? <th className="px-4 py-3 text-right">Wards</th> : null}
+              {isMunicipal ? <th className="px-4 py-3">Ward Split</th> : null}
+              {!isMunicipal ? <th className="px-4 py-3 w-20 text-center">Detail</th> : null}
             </tr>
           </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={`${r.acNo}-${r.acName}`} className="border-t border-slate-100 hover:bg-slate-50">
-                <td className="px-3 py-2 tabular-nums text-slate-500">{r.acNo}</td>
-                <td className="px-3 py-2 font-medium text-slate-900">{r.acName}</td>
-                <td className="px-3 py-2 text-slate-600">{r.district}</td>
-                <td className="px-3 py-2">{r.candidate}</td>
-                <td className="px-3 py-2">
-                  <span className={`rounded px-1.5 py-0.5 text-xs font-semibold text-white ${PARTY_CHIP[r.party] || PARTY_CHIP.Others}`}>
-                    {r.party}
-                  </span>
-                </td>
-                {!isMunicipal ? (
-                  <>
-                    <td className="px-3 py-2 text-right tabular-nums">{r.votes?.toLocaleString() || "—"}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{r.votePercent || "—"}</td>
-                  </>
-                ) : (
-                  <>
-                    <td className="px-3 py-2 text-right tabular-nums">{r.totalWards || "—"}</td>
-                    <td className="px-3 py-2">
-                      <WardBreakdownBar wardBreakdown={r.wardBreakdown} />
+          <tbody className="divide-y divide-amber-100/60">
+            {rows.map((r) => {
+              const href = `/admin/election/constituency/${bodyType}/${year}/seat/${r.acNo}?from=/admin/election`;
+              return (
+                <tr key={`${r.acNo}-${r.acName}`} className="hover:bg-amber-50/50 transition-colors">
+                  <td className="px-4 py-2.5 tabular-nums text-xs text-stone-400">{r.acNo}</td>
+                  <td className="px-4 py-2.5 font-semibold text-teal-800">
+                    {!isMunicipal ? <Link to={href} className="hover:underline">{r.acName}</Link> : r.acName}
+                  </td>
+                  <td className="px-4 py-2.5 text-xs text-stone-500">{r.district || "—"}</td>
+                  <td className="px-4 py-2.5 font-medium text-emerald-950">
+                    {!isMunicipal ? <Link to={href} className="hover:underline">{r.candidate || "—"}</Link> : (r.candidate || "—")}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold text-white ${PARTY_CHIP[r.party] || PARTY_CHIP.Others}`}>
+                      {r.party}
+                    </span>
+                  </td>
+                  {!isMunicipal ? (
+                    <>
+                      <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-emerald-950">{r.votes?.toLocaleString("en-IN") || "—"}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-stone-500">{r.votePercent ? `${r.votePercent}%` : "—"}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-4 py-2.5 text-right tabular-nums">{r.totalWards || "—"}</td>
+                      <td className="px-4 py-2.5"><WardBreakdownBar wardBreakdown={r.wardBreakdown} /></td>
+                    </>
+                  )}
+                  {!isMunicipal ? (
+                    <td className="px-4 py-2.5 text-center">
+                      <Link to={href} className="inline-flex items-center rounded-lg bg-teal-50 px-2.5 py-1 text-[11px] font-semibold text-teal-800 hover:bg-teal-100 transition">
+                        View →
+                      </Link>
                     </td>
-                  </>
-                )}
-              </tr>
-            ))}
+                  ) : null}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

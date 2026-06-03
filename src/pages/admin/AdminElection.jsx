@@ -228,14 +228,14 @@ export function AdminElection() {
       </div>
 
       <div className="border-b border-amber-200/70 bg-[#faf6f0] px-4 sm:px-6">
-        <div className="flex gap-1 pt-3">
+        <div className="flex gap-0">
           <button
             type="button"
             onClick={() => setMainTab("election")}
-            className={`rounded-t-lg border border-b-0 px-6 py-2.5 text-sm font-semibold transition ${
+            className={`relative px-6 py-3.5 text-sm font-semibold transition-colors ${
               mainTab === "election"
-                ? "border-teal-700 bg-[#faf6f0] text-teal-900"
-                : "border-transparent bg-[#f0e6dc] text-stone-700 hover:bg-amber-100/50"
+                ? "text-teal-900 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-teal-700"
+                : "text-stone-500 hover:text-stone-800"
             }`}
           >
             Election
@@ -249,30 +249,26 @@ export function AdminElection() {
                 rankMode: "all",
                 party: "ALL",
                 page: "1",
+                tab: "winners",
               });
-              navigate(`/admin/election/defeated?${qs.toString()}`);
+              navigate(`/admin/election/results?${qs.toString()}`);
             }}
-            className="rounded-t-lg border border-b-0 border-transparent bg-[#f0e6dc] px-6 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-rose-100/60 hover:text-rose-900"
+            className="relative px-6 py-3.5 text-sm font-semibold text-stone-500 transition-colors hover:text-teal-800"
           >
-            Winners & Defeated ↗
+            Constituency ↗
           </button>
           <button
             type="button"
             onClick={() => setMainTab("analysis")}
-            className={`rounded-t-lg border border-b-0 px-6 py-2.5 text-sm font-semibold transition ${
+            className={`relative px-6 py-3.5 text-sm font-semibold transition-colors ${
               mainTab === "analysis"
-                ? "border-teal-700 bg-[#faf6f0] text-teal-900"
-                : "border-transparent bg-[#f0e6dc] text-stone-700 hover:bg-amber-100/50"
+                ? "text-teal-900 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-teal-700"
+                : "text-stone-500 hover:text-stone-800"
             }`}
           >
             Analysis
           </button>
         </div>
-        <p className="border-t border-teal-700/80 px-1 pb-3 pt-2 text-xs text-stone-600">
-          {mainTab === "election"
-            ? "Official results: Vidhan Sabha, Lok Sabha, MLC, Municipality — maps and seat-wise lists. Defeated tab opens full page."
-            : "Strategy: party trends, demographics, swing zones, watchlist, charts, and field briefing."}
-        </p>
       </div>
 
       <div className="p-4 sm:p-6">

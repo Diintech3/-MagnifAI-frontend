@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, GeoJSON, useMap } from "react-leaflet";
+import { useNavigate } from "react-router-dom";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useAuth } from "../../auth/AuthProvider";
@@ -108,22 +109,24 @@ function ElectionGeoLayer({ geoJson, geoStyle, onEachFeature }) {
   return null;
 }
 
-function popupHtml(p) {
+function popupHtml(p, year, bodyType) {
+  const seatNo = p.acNo || p.seatNo || p.ac_no;
   const rows = [
     ["Constituency", p.constituency || p.acName],
     ["Candidate", p.candidate || "—"],
     ["Party", p.party || "—"],
     ["Votes", (p.votes || 0).toLocaleString("en-IN")],
-    ["Vote percent", p.votePercent ? `${p.votePercent}%` : "—"],
-    ["Polled Votes", p.polledVotes ? p.polledVotes.toLocaleString("en-IN") : "—"],
-    ["Year", p.year || "—"],
+    ["Vote %", p.votePercent ? `${p.votePercent}%` : "—"],
+    ["Year", p.year || year || "—"],
   ];
+  const link = seatNo
+    ? `<a href="/admin/election/constituency/${bodyType || "VIDHAN_SABHA"}/${year || "2022"}/seat/${seatNo}?from=/admin/election" style="display:block;margin-top:8px;background:#0f766e;color:#fff;text-align:center;padding:5px 8px;border-radius:6px;font-weight:700;font-size:11px;text-decoration:none;">View Full Profile →</a>`
+    : "";
   return `<div class="election-ac-popup">${rows
-    .map(
-      ([label, value]) =>
-        `<div class="election-ac-popup-row"><span class="election-ac-popup-label">${label}</span><span class="election-ac-popup-value">${value}</span></div>`,
+    .map(([label, value]) =>
+      `<div class="election-ac-popup-row"><span class="election-ac-popup-label">${label}</span><span class="election-ac-popup-value">${value}</span></div>`
     )
-    .join("")}</div>`;
+    .join("")}${link}</div>`;
 }
 
 function featureStyle(feature, partyColors) {
@@ -140,6 +143,7 @@ function featureStyle(feature, partyColors) {
 
 export function AssemblyPreviewMap({ stateCode, stateName, onDataLoaded, bodyType = "VIDHAN_SABHA", year: yearProp }) {
   const { token } = useAuth();
+  const navigate = useNavigate();
   const [year, setYear] = useState(yearProp || "2022");
   const [base2012, setBase2012] = useState("All selected");
   const [base2017, setBase2017] = useState("All selected");
@@ -200,7 +204,7 @@ export function AssemblyPreviewMap({ stateCode, stateName, onDataLoaded, bodyTyp
     (feature, layer) => {
       const p = feature?.properties || {};
       const baseStyle = featureStyle(feature, partyColors);
-      layer.bindPopup(popupHtml(p), { className: "election-map-popup", maxWidth: 280 });
+      layer.bindPopup(popupHtml(p, year, bodyType), { className: "election-map-popup", maxWidth: 280 });
       layer.on({
         mouseover: (e) => {
           e.target.setStyle({ ...baseStyle, color: "#111827", weight: 1.5, fillOpacity: 0.95 });
@@ -208,9 +212,15 @@ export function AssemblyPreviewMap({ stateCode, stateName, onDataLoaded, bodyTyp
         mouseout: (e) => {
           e.target.setStyle(baseStyle);
         },
+        click: () => {
+          const seatNo = p.acNo || p.seatNo || p.ac_no;
+          if (seatNo) {
+            navigate(`/admin/election/constituency/${bodyType}/${year}/seat/${seatNo}?from=/admin/election`);
+          }
+        },
       });
     },
-    [partyColors],
+    [partyColors, navigate, bodyType, year],
   );
 
   const handleSubmit = (e) => {
