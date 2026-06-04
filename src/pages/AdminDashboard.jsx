@@ -6,6 +6,7 @@ import { AdminElection } from "./admin/AdminElection";
 import { AdminElectionDefeatedPage } from "./admin/AdminElectionDefeatedPage";
 import { AdminElectionDefeatedDetailPage } from "./admin/AdminElectionDefeatedDetailPage";
 import { ConstituencyDetailPage } from "./admin/ConstituencyDetailPage";
+import { AdminMagnifAI } from "./admin/AdminMagnifAI";
 
 export function AdminDashboard() {
   return (
@@ -19,6 +20,12 @@ export function AdminDashboard() {
           headerTitle: "Admin Overview",
           end: true,
           icon: "overview",
+        },
+        {
+          to: "/admin/magnifai",
+          label: "MagnifAI",
+          headerTitle: "MagnifAI Dashboard",
+          icon: "analysis",
         },
         {
           to: "/admin/apps",
@@ -36,6 +43,7 @@ export function AdminDashboard() {
     >
       <Routes>
         <Route index element={<AdminOverview />} />
+        <Route path="magnifai" element={<AdminMagnifAI />} />
         <Route path="apps" element={<AdminApps />} />
         <Route path="election/constituency/:bodyType/:year/seat/:seatNo" element={<ConstituencyDetailPage />} />
         <Route path="election/defeated/:bodyType/:year/seat/:seatNo" element={<AdminElectionDefeatedDetailPage />} />
