@@ -41,6 +41,7 @@ const emptyForm = {
   linkedAppId: "",
   password: "",
   confirmPassword: "",
+  showCandidates: false,
 };
 
 export function AddAppModal({ open, onClose, onSaved, token, editApp }) {
@@ -77,6 +78,7 @@ export function AddAppModal({ open, onClose, onSaved, token, editApp }) {
         linkedAppId: editApp.linkedAppId || "",
         password: "",
         confirmPassword: "",
+        showCandidates: editApp.showCandidates ?? false,
       });
       setLogoPreview(editApp.logoUrl || "");
     } else {
@@ -121,6 +123,7 @@ export function AddAppModal({ open, onClose, onSaved, token, editApp }) {
     Object.entries(form).forEach(([k, v]) => {
       if (isEdit && k === "password" && !v) return;
       if (isEdit && k === "confirmPassword" && !form.password) return;
+      if (k === "showCandidates") { fd.append(k, v ? "true" : "false"); return; }
       fd.append(k, v);
     });
     if (logo) fd.append("logo", logo);
@@ -315,6 +318,20 @@ export function AddAppModal({ open, onClose, onSaved, token, editApp }) {
         </Section>
 
         <p className="text-xs text-slate-500">* Required fields</p>
+
+        <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+          <input
+            type="checkbox"
+            id="showCandidates"
+            checked={form.showCandidates}
+            onChange={(e) => setField("showCandidates", e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+          />
+          <label htmlFor="showCandidates" className="text-sm font-medium text-slate-700">
+            Enable Candidates Module
+            <span className="ml-1 text-xs font-normal text-slate-500">(Show Candidates tab in App portal)</span>
+          </label>
+        </div>
 
         <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
           <button

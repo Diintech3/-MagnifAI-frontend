@@ -74,8 +74,8 @@ export function DashboardShell({ portalLabel, loginPath, navItems, children, fla
             sidebarExpanded ? "flex items-center gap-3 px-4" : "flex flex-col items-center gap-2 px-2",
           )}
         >
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-sm font-bold text-white">
-            M
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full overflow-hidden border border-slate-700">
+            <img src="/MagnifAI logo.jpeg" alt="MagnifAI" className="h-full w-full object-cover" />
           </div>
           {sidebarExpanded ? (
             <div className="min-w-0">
@@ -97,28 +97,30 @@ export function DashboardShell({ portalLabel, loginPath, navItems, children, fla
         </nav>
 
         <div className={cn("shrink-0 space-y-0.5 border-t border-slate-800 py-2", sidebarExpanded ? "px-2.5" : "px-2")}>
-          <button
-            type="button"
+          <NavLink
+            to={`${loginPath.replace("/login", "/settings")}`}
             title={!sidebarExpanded ? "Settings" : undefined}
-            className={cn(
-              "flex w-full items-center rounded-lg text-sm text-slate-400 transition hover:bg-slate-800/80 hover:text-white",
+            className={({ isActive }) => cn(
+              "flex w-full items-center rounded-lg text-sm transition hover:bg-slate-800/80 hover:text-white",
               sidebarExpanded ? "gap-2.5 px-2.5 py-1.5" : "justify-center py-2.5",
+              isActive ? "bg-slate-800 text-white" : "text-slate-400",
             )}
           >
             <IconSettings className="h-5 w-5 shrink-0" />
             {sidebarExpanded ? <span>Settings</span> : null}
-          </button>
-          <button
-            type="button"
+          </NavLink>
+          <NavLink
+            to={`${loginPath.replace("/login", "/help")}`}
             title={!sidebarExpanded ? "Help" : undefined}
-            className={cn(
-              "flex w-full items-center rounded-lg text-sm text-slate-400 transition hover:bg-slate-800/80 hover:text-white",
+            className={({ isActive }) => cn(
+              "flex w-full items-center rounded-lg text-sm transition hover:bg-slate-800/80 hover:text-white",
               sidebarExpanded ? "gap-2.5 px-2.5 py-1.5" : "justify-center py-2.5",
+              isActive ? "bg-slate-800 text-white" : "text-slate-400",
             )}
           >
             <IconHelp className="h-5 w-5 shrink-0" />
             {sidebarExpanded ? <span>Help</span> : null}
-          </button>
+          </NavLink>
         </div>
       </aside>
 
@@ -146,13 +148,12 @@ export function DashboardShell({ portalLabel, loginPath, navItems, children, fla
             <button
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              className="flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-left transition hover:bg-slate-200 sm:px-4"
+              className="flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-1.5 text-left transition hover:bg-slate-200 sm:px-4"
             >
               <div className="hidden text-right sm:block">
                 <div className="max-w-[180px] truncate text-sm font-medium text-slate-900">
                   {user?.businessName || user?.name || user?.email}
                 </div>
-                <div className="text-xs text-slate-500">{user?.name || user?.role}</div>
               </div>
               <div className="sm:hidden">
                 <div className="text-sm font-medium text-slate-900">{user?.name || "Account"}</div>

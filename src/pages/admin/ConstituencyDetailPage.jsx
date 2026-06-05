@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { MapContainer, GeoJSON, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -11,7 +11,7 @@ import {
   LuNewspaper, LuFileText, LuSearch, LuLink, LuRefreshCw,
   LuCircleAlert, LuImage, LuCirclePlay, LuLayers,
   LuChartBar, LuRadar, LuTrendingUp, LuTrendingDown,
-  LuMinus, LuActivity,
+  LuMinus, LuActivity, LuExpand, LuX,
 } from "react-icons/lu";
 import { useAuth } from "../../auth/AuthProvider";
 import { api } from "../../lib/api";
@@ -25,12 +25,8 @@ const PARTY_COLORS = {
 };
 
 const TABS = [
-  { id: "winner",     label: "Winner",           icon: LuTrophy,    active: "bg-emerald-700", inactive: "hover:text-emerald-900" },
-  { id: "loser",      label: "Losers",            icon: LuUsers,     active: "bg-rose-600",    inactive: "hover:text-rose-900"    },
-  { id: "social",     label: "Social Media",      icon: LuShare2,    active: "bg-indigo-600",  inactive: "hover:text-indigo-900"  },
-  { id: "mentions",   label: "Digital Mentions",  icon: LuGlobe,     active: "bg-amber-600",   inactive: "hover:text-amber-900"   },
-  { id: "popularity", label: "Popularity Index",  icon: LuChartBar,  active: "bg-violet-600",  inactive: "hover:text-violet-900"  },
-  { id: "sensing",    label: "Social Sensing",    icon: LuRadar,     active: "bg-teal-600",    inactive: "hover:text-teal-900"    },
+  { id: "winner", label: "Winner", icon: LuTrophy, active: "bg-emerald-700", inactive: "hover:text-emerald-900" },
+  { id: "loser",  label: "Losers", icon: LuUsers,  active: "bg-rose-600",    inactive: "hover:text-rose-900"    },
 ];
 
 const SOCIAL_PLATFORMS = [
@@ -258,7 +254,7 @@ function ConstituencyMap({ seatName, seatNo, bodyType, year }) {
 }
 
 /* ─── Candidate Card ─────────────────────────────────────── */
-function CandidateCard({ c, polledVotes, winnerVotes }) {
+export function CandidateCard({ c, polledVotes, winnerVotes }) {
   const isWinner   = c.result === "WINNER";
   const isRunnerUp = c.result === "RUNNER_UP";
   const base = polledVotes > 0 ? polledVotes : winnerVotes > 0 ? winnerVotes * 1.5 : 1;
@@ -470,17 +466,84 @@ function ConnectSocialForm({ constituencyInfo, winner, token, onSaved }) {
   );
 }
 
+function PlatformTabContent({ platform, stats, posts }) {
+  const p = SOCIAL_PLATFORMS.find((x) => x.id === platform);
+  if (!p) return null;
+  const connected = stats?.connected ?? false;
+
+  return (
+    <div className="space-y-4">
+      {/* Stats Card */}
+      <div className={`rounded-2xl border ${p.border} ${p.bg} p-5`}>
+        <div className="flex items-center gap-3 mb-4">
+          <span className={`flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br ${p.color} text-sm font-black text-white shadow`}>{p.icon}</span>
+          <div>
+            <p className={`text-base font-bold ${p.textColor}`}>{p.label}</p>
+            <p className="text-[11px] text-stone-400">
+              {connected ? (stats?.handle || "Connected") : "Not connected"}
+            </p>
+          </div>
+          <span className={`ml-auto rounded-full px-3 py-1 text-xs font-bold ${
+            connected ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400"
+          }`}>{connected ? "Live" : "Not Linked"}</span>
+        </div>
+
+        {connected ? (
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: "Followers", value: stats?.followers },
+              { label: "Following", value: stats?.following },
+              { label: "Posts",     value: stats?.posts     },
+            ].map((s) => (
+              <div key={s.label} className="rounded-xl bg-white/70 border border-white/80 px-3 py-3 text-center">
+                <p className={`text-xl font-bold ${p.textColor}`}>{s.value ?? "—"}</p>
+                <p className="text-[11px] text-stone-400 mt-0.5">{s.label}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-white/50 py-6 text-center text-xs text-stone-400">
+            No account linked. Use &ldquo;Edit Accounts&rdquo; to connect.
+          </div>
+        )}
+      </div>
+
+      {/* Posts */}
+      <div>
+        <p className="mb-3 text-xs font-bold uppercase tracking-wide text-stone-500 flex items-center gap-1.5">
+          <LuHash className="h-3.5 w-3.5" /> {p.label} Posts ({posts.length})
+        </p>
+        {posts.length > 0 ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {posts.map((post, i) => <PostCard key={post.id || i} index={i + 1} post={post} />)}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-white py-8 text-center text-xs text-stone-400">
+            {connected ? `No ${p.label} posts fetched yet.` : `Connect ${p.label} account to see posts.`}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function WinnerSocialSection({ constituencyInfo, winner, token }) {
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState(null);
-  const [data, setData]             = useState(null);
-  const [showForm, setShowForm]     = useState(false);
-  const [activePlatform, setActivePlatform] = useState("all");
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState(null);
+  const [data, setData]         = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [activePlatform, setActivePlatform] = useState("instagram");
 
   const load = useCallback(() => {
     if (!winner) return;
     setLoading(true); setError(null);
-    const qs = new URLSearchParams({ stateCode: constituencyInfo.stateCode, bodyType: constituencyInfo.bodyType, year: String(constituencyInfo.year), seatNo: String(constituencyInfo.seatNo), candidateName: winner });
+    const qs = new URLSearchParams({
+      stateCode: constituencyInfo.stateCode,
+      bodyType: constituencyInfo.bodyType,
+      year: String(constituencyInfo.year),
+      seatNo: String(constituencyInfo.seatNo),
+      candidateName: winner,
+    });
     api(`/api/admin/social-data/social?${qs}`, { token })
       .then(setData).catch((e) => setError(e.message || "Failed")).finally(() => setLoading(false));
   }, [constituencyInfo, winner, token]);
@@ -489,25 +552,37 @@ function WinnerSocialSection({ constituencyInfo, winner, token }) {
 
   const platformsMap = {};
   (data?.platforms || []).forEach((p) => { platformsMap[p.platform] = p; });
-  const allPosts   = data?.posts || [];
-  const shownPosts = activePlatform === "all" ? allPosts : allPosts.filter((p) => p.platform === activePlatform);
+  const allPosts = data?.posts || [];
 
   return (
     <div className="space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h3 className="text-xs font-bold uppercase tracking-wide text-stone-500 flex items-center gap-2">
           <LuShare2 className="h-3.5 w-3.5" /> {winner} — Social Media
-          {!loading && (data?.hasLinks
-            ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Linked</span>
-            : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">Not Linked</span>
+          {!loading && (
+            data?.hasLinks
+              ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Linked</span>
+              : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">Not Linked</span>
           )}
         </h3>
-        <button onClick={() => setShowForm((v) => !v)} className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50 transition">
-          <LuLink className="h-3 w-3" /> {showForm ? "Hide" : data?.hasLinks ? "Edit Accounts" : "+ Connect"}
+        <button
+          onClick={() => setShowForm((v) => !v)}
+          className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50 transition"
+        >
+          <LuLink className="h-3 w-3" />
+          {showForm ? "Hide" : data?.hasLinks ? "Edit Accounts" : "+ Connect"}
         </button>
       </div>
 
-      {showForm && <ConnectSocialForm constituencyInfo={constituencyInfo} winner={winner} token={token} onSaved={() => { setShowForm(false); load(); }} />}
+      {showForm && (
+        <ConnectSocialForm
+          constituencyInfo={constituencyInfo}
+          winner={winner}
+          token={token}
+          onSaved={() => { setShowForm(false); load(); }}
+        />
+      )}
 
       {loading && <TabSpinner />}
       {!loading && error && <TabError message={error} onRetry={load} />}
@@ -518,38 +593,42 @@ function WinnerSocialSection({ constituencyInfo, winner, token }) {
         </div>
       )}
 
-      {!loading && !error && data?.hasLinks && (
+      {!loading && !error && (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {SOCIAL_PLATFORMS.map((p) => <SocialStatCard key={p.id} platform={p.id} stats={platformsMap[p.id]} />)}
+          {/* Platform Tabs */}
+          <div className="flex gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-100 p-1">
+            {SOCIAL_PLATFORMS.map((p) => {
+              const stats     = platformsMap[p.id];
+              const connected = stats?.connected ?? false;
+              const isActive  = activePlatform === p.id;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => setActivePlatform(p.id)}
+                  className={`flex flex-1 min-w-fit items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-semibold transition-all ${
+                    isActive
+                      ? `bg-gradient-to-r ${p.color} text-white shadow`
+                      : "bg-transparent text-stone-500 hover:bg-white hover:text-slate-700"
+                  }`}
+                >
+                  <span className="font-black text-[11px]">{p.icon}</span>
+                  <span className="hidden sm:inline">{p.label}</span>
+                  {connected && (
+                    <span className={`h-1.5 w-1.5 rounded-full ${
+                      isActive ? "bg-white" : "bg-emerald-500"
+                    }`} />
+                  )}
+                </button>
+              );
+            })}
           </div>
 
-          <div>
-            <div className="mb-2 flex items-center justify-between flex-wrap gap-2">
-              <p className="text-xs font-bold uppercase tracking-wide text-stone-500 flex items-center gap-1.5">
-                <LuHash className="h-3.5 w-3.5" /> Last {allPosts.length} Posts
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                <button onClick={() => setActivePlatform("all")} className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold transition ${activePlatform === "all" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
-                  All ({allPosts.length})
-                </button>
-                {SOCIAL_PLATFORMS.map((p) => {
-                  const count = allPosts.filter((x) => x.platform === p.id).length;
-                  if (!count) return null;
-                  return (
-                    <button key={p.id} onClick={() => setActivePlatform(p.id)}
-                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold transition ${activePlatform === p.id ? `bg-gradient-to-r ${p.color} text-white` : `${p.bg} ${p.textColor} hover:opacity-80`}`}>
-                      {p.label} ({count})
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            {shownPosts.length > 0
-              ? <div className="grid gap-3 sm:grid-cols-2">{shownPosts.map((post, i) => <PostCard key={post.id || i} index={i + 1} post={post} />)}</div>
-              : <div className="rounded-xl border border-dashed border-slate-200 bg-white py-8 text-center text-xs text-stone-400">No posts yet. Add Instagram Business Account ID to see live posts.</div>
-            }
-          </div>
+          {/* Active Platform Content */}
+          <PlatformTabContent
+            platform={activePlatform}
+            stats={platformsMap[activePlatform]}
+            posts={allPosts.filter((post) => post.platform === activePlatform)}
+          />
         </>
       )}
     </div>
@@ -731,44 +810,142 @@ function DigitalMentionsTab({ seatName, winnerName, token }) {
 }
 
 /* ─── Social Sensing Tab ─────────────────────────────────── */
-function SocialSensingTab({ seatName, candidates }) {
-  const winner     = candidates.find((c) => c.result === "WINNER");
-  const totalVotes = candidates.reduce((s, c) => s + (c.votes || 0), 0) || 1;
+function SocialSensingTab({ seatName, candidates, constituencyInfo, winnerName, token }) {
+  const [socialData, setSocialData] = useState(null);
+  const [loading, setLoading]       = useState(true);
 
-  const getSentiment = (c) => {
-    const criminal  = parseInt(c?.criminal?.totalCases, 10) || 0;
-    const voteShare = c?.votePercent || 0;
+  useEffect(() => {
+    if (!winnerName) { setLoading(false); return; }
+    const qs = new URLSearchParams({
+      stateCode:     constituencyInfo.stateCode,
+      bodyType:      constituencyInfo.bodyType,
+      year:          String(constituencyInfo.year),
+      seatNo:        String(constituencyInfo.seatNo),
+      candidateName: winnerName,
+    });
+    api(`/api/admin/social-data/social?${qs}`, { token })
+      .then(setSocialData)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [constituencyInfo, winnerName, token]);
+
+  const winner     = candidates.find((c) => c.result === "WINNER");
+  const criminalCount = candidates.filter((c) => parseInt(c.criminal?.totalCases, 10) > 0).length;
+  const competition   = candidates.length > 10 ? "High" : candidates.length > 6 ? "Medium" : "Low";
+
+  // Build platform map from live data
+  const platformsMap = {};
+  (socialData?.platforms || []).forEach((p) => { platformsMap[p.platform] = p; });
+  const igStats      = platformsMap["instagram"];
+  const hasLive      = socialData?.hasLinks;
+  const allPosts     = socialData?.posts || [];
+  const totalEngagement = allPosts.reduce((s, p) => s + (p.likes || 0) + (p.comments || 0), 0);
+  const avgEngagement   = allPosts.length > 0 ? Math.round(totalEngagement / allPosts.length) : null;
+
+  // Sentiment based on real data if available, else vote share
+  const getSentiment = () => {
+    if (hasLive && igStats?.connected) {
+      const followers = parseInt(String(igStats.followers || "").replace(/[KM]/g, (m) => m === "K" ? "000" : "000000"), 10) || 0;
+      if (followers > 10000 || totalEngagement > 100) return "positive";
+      if (followers > 1000) return "neutral";
+      return "neutral";
+    }
+    const criminal  = parseInt(winner?.criminal?.totalCases, 10) || 0;
+    const voteShare = winner?.votePercent || 0;
     if (voteShare > 40 && !criminal) return "positive";
     if (criminal > 0 || voteShare < 5) return "negative";
     return "neutral";
   };
 
-  const overall       = winner ? getSentiment(winner) : "neutral";
-  const sentColor     = { positive: "text-emerald-600", negative: "text-rose-600", neutral: "text-slate-500" };
-  const sentBg        = { positive: "bg-emerald-50 border-emerald-200", negative: "bg-rose-50 border-rose-200", neutral: "bg-slate-50 border-slate-200" };
-  const SentIcon      = { positive: LuTrendingUp, negative: LuTrendingDown, neutral: LuMinus }[overall] || LuMinus;
-  const criminalCount = candidates.filter((c) => parseInt(c.criminal?.totalCases, 10) > 0).length;
-  const competition   = candidates.length > 10 ? "High" : candidates.length > 6 ? "Medium" : "Low";
+  const overall   = getSentiment();
+  const sentColor = { positive: "text-emerald-600", negative: "text-rose-600", neutral: "text-slate-500" };
+  const sentBg    = { positive: "bg-emerald-50 border-emerald-200", negative: "bg-rose-50 border-rose-200", neutral: "bg-slate-50 border-slate-200" };
+  const SentIcon  = { positive: LuTrendingUp, negative: LuTrendingDown, neutral: LuMinus }[overall] || LuMinus;
 
   return (
     <div className="space-y-4">
+
       {/* Overall pulse */}
       <div className={`rounded-2xl border ${sentBg[overall]} p-5 flex items-center gap-5`}>
-        <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${overall === "positive" ? "bg-emerald-100" : overall === "negative" ? "bg-rose-100" : "bg-slate-100"}`}>
+        <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${
+          overall === "positive" ? "bg-emerald-100" : overall === "negative" ? "bg-rose-100" : "bg-slate-100"
+        }`}>
           <SentIcon className={`h-6 w-6 ${sentColor[overall]}`} />
         </span>
         <div className="flex-1">
           <p className="text-xs font-bold uppercase tracking-wide text-stone-400">Constituency Social Pulse — {seatName}</p>
           <p className={`text-xl font-bold mt-0.5 capitalize ${sentColor[overall]}`}>{overall}</p>
-          <p className="text-xs text-stone-500 mt-0.5">Based on vote share, margin and candidate profile analysis</p>
-        </div>
-        <div className="text-right shrink-0">
-          <p className="text-[10px] text-stone-400">Winner Buzz</p>
-          <p className="text-2xl font-bold text-slate-800">{winner ? Math.round((winner.votes / totalVotes) * 100) : 0}%</p>
+          <p className="text-xs text-stone-500 mt-0.5">
+            {hasLive ? "Based on live social media data" : "Based on vote share & candidate profile (no social accounts linked)"}
+          </p>
         </div>
       </div>
 
-      {/* Insight cards */}
+      {/* Live Social Stats — winner only */}
+      {loading ? (
+        <TabSpinner />
+      ) : hasLive ? (
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4 space-y-3">
+          <p className="text-xs font-bold text-indigo-800 flex items-center gap-1.5">
+            <LuShare2 className="h-3.5 w-3.5" /> {winnerName} — Live Social Stats
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {SOCIAL_PLATFORMS.map((p) => {
+              const s = platformsMap[p.id];
+              if (!s?.connected) return (
+                <div key={p.id} className={`rounded-xl border ${p.border} ${p.bg} px-3 py-3`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br ${p.color} text-[10px] font-black text-white`}>{p.icon}</span>
+                    <span className={`text-xs font-semibold ${p.textColor}`}>{p.label}</span>
+                  </div>
+                  <p className="text-[10px] text-stone-400">Not connected</p>
+                </div>
+              );
+              return (
+                <div key={p.id} className={`rounded-xl border ${p.border} ${p.bg} px-3 py-3`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br ${p.color} text-[10px] font-black text-white`}>{p.icon}</span>
+                    <span className={`text-xs font-semibold ${p.textColor}`}>{p.label}</span>
+                    <span className="ml-auto rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">Live</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 text-center">
+                    {[{ l: "Followers", v: s.followers }, { l: "Following", v: s.following }, { l: "Posts", v: s.posts }].map((x) => (
+                      <div key={x.l}>
+                        <p className={`text-sm font-bold ${p.textColor}`}>{x.v ?? "—"}</p>
+                        <p className="text-[9px] text-stone-400">{x.l}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Engagement summary */}
+          {allPosts.length > 0 && (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-xl border border-pink-200 bg-white px-3 py-3 text-center">
+                <p className="text-lg font-bold text-pink-700">{allPosts.length}</p>
+                <p className="text-[10px] text-stone-400">Recent Posts</p>
+              </div>
+              <div className="rounded-xl border border-violet-200 bg-white px-3 py-3 text-center">
+                <p className="text-lg font-bold text-violet-700">{totalEngagement.toLocaleString("en-IN")}</p>
+                <p className="text-[10px] text-stone-400">Total Engagement</p>
+              </div>
+              <div className="rounded-xl border border-teal-200 bg-white px-3 py-3 text-center">
+                <p className="text-lg font-bold text-teal-700">{avgEngagement ?? "—"}</p>
+                <p className="text-[10px] text-stone-400">Avg per Post</p>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-indigo-200 bg-indigo-50/40 px-4 py-5 text-center text-xs text-indigo-600">
+          No social accounts linked for {winnerName}. Go to <strong>Social Media</strong> tab to connect accounts.
+        </div>
+      )}
+
+      {/* Election stats */}
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
           <p className="text-[10px] font-bold uppercase tracking-wide text-violet-400 mb-1">Dominance Score</p>
@@ -787,34 +964,45 @@ function SocialSensingTab({ seatName, candidates }) {
         </div>
       </div>
 
-      {/* Candidate signal list */}
+      {/* Candidate list with real social signal */}
       <div>
-        <p className="mb-3 text-xs font-bold uppercase tracking-wide text-stone-500 flex items-center gap-2"><LuActivity className="h-3.5 w-3.5" /> Candidate Social Signal</p>
+        <p className="mb-3 text-xs font-bold uppercase tracking-wide text-stone-500 flex items-center gap-2">
+          <LuActivity className="h-3.5 w-3.5" /> Candidate Signal
+        </p>
         <div className="space-y-2">
           {candidates.slice(0, 8).map((c) => {
-            const sent  = getSentiment(c);
-            const sc    = sentColor[sent] || "text-slate-500";
-            const SIcon = { positive: LuTrendingUp, negative: LuTrendingDown, neutral: LuMinus }[sent] || LuMinus;
-            const buzz  = Math.round(((c.votes || 0) / totalVotes) * 100);
-            const crim  = parseInt(c.criminal?.totalCases, 10) || 0;
-            const isW   = c.result === "WINNER";
-            const isR   = c.result === "RUNNER_UP";
+            const crim = parseInt(c.criminal?.totalCases, 10) || 0;
+            const isW  = c.result === "WINNER";
+            const isR  = c.result === "RUNNER_UP";
+            // For winner: show real followers if available, else vote %
+            const isWinner = c.candidate === winnerName;
+            const liveFollowers = isWinner && igStats?.connected ? igStats.followers : null;
             return (
-              <div key={c.candidate} className={`flex items-center gap-3 rounded-xl border bg-white px-4 py-3 ${isW ? "border-emerald-200 bg-emerald-50/50" : isR ? "border-amber-200 bg-amber-50/30" : "border-slate-200"}`}>
-                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ${isW ? "bg-emerald-600" : isR ? "bg-amber-500" : "bg-slate-400"}`}>
-                  {c.rank}
-                </span>
+              <div key={c.candidate} className={`flex items-center gap-3 rounded-xl border bg-white px-4 py-3 ${
+                isW ? "border-emerald-200 bg-emerald-50/50" : isR ? "border-amber-200 bg-amber-50/30" : "border-slate-200"
+              }`}>
+                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ${
+                  isW ? "bg-emerald-600" : isR ? "bg-amber-500" : "bg-slate-400"
+                }`}>{c.rank}</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-semibold text-slate-800 truncate">{c.candidate}</p>
                   <p className="text-[10px] text-stone-400">{c.party} · {c.votePercent}% votes</p>
                 </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  {crim > 0 && <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700">{crim} cases</span>}
-                  <div className="text-right">
-                    <p className="text-[10px] text-stone-400">Buzz</p>
-                    <p className="text-xs font-bold text-slate-700">{buzz}%</p>
-                  </div>
-                  <SIcon className={`h-4 w-4 ${sc}`} />
+                <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                  {crim > 0 && (
+                    <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700">{crim} cases</span>
+                  )}
+                  {liveFollowers ? (
+                    <div className="text-right">
+                      <p className="text-[10px] text-stone-400">Followers</p>
+                      <p className="text-xs font-bold text-pink-600">{liveFollowers}</p>
+                    </div>
+                  ) : (
+                    <div className="text-right">
+                      <p className="text-[10px] text-stone-400">Vote Share</p>
+                      <p className="text-xs font-bold text-slate-700">{c.votePercent}%</p>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -823,8 +1011,396 @@ function SocialSensingTab({ seatName, candidates }) {
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-[11px] text-stone-500">
-        <strong className="text-slate-700">Social Sensing</strong> uses vote share, margin, criminal records and candidate profiles to estimate constituency sentiment. Connect real social accounts for live signal data.
+        <strong className="text-slate-700">Social Sensing</strong> shows live social media stats when accounts are connected. Otherwise uses election data as signal.
       </div>
+    </div>
+  );
+}
+
+/* ─── News Tab ──────────────────────────────────────────── */
+function NewsTab({ seatName, winnerName, token }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
+  const [data, setData]       = useState(null);
+
+  const load = useCallback(() => {
+    if (!seatName) return;
+    setLoading(true); setError(null);
+    const qs = new URLSearchParams({ seatName, state: "Uttar Pradesh", winnerName: winnerName || "" });
+    api(`/api/admin/social-data/mentions?${qs}`, { token })
+      .then(setData).catch((e) => setError(e.message)).finally(() => setLoading(false));
+  }, [seatName, winnerName, token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <TabSpinner />;
+  if (error)   return <TabError message={error} onRetry={load} />;
+
+  const news    = data?.byCategory?.news || [];
+  const summary = data?.summary || { total: 0, positive: 0, negative: 0, neutral: 0 };
+
+  return (
+    <div className="space-y-4">
+      {/* Sentiment summary */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          { label: "Total News",  value: news.length,        cls: "border-red-200    bg-red-50",     v: "text-red-700"     },
+          { label: "Positive",    value: summary.positive,   cls: "border-emerald-200 bg-emerald-50", v: "text-emerald-700" },
+          { label: "Neutral",     value: summary.neutral,    cls: "border-slate-200   bg-slate-50",   v: "text-slate-700"   },
+          { label: "Negative",    value: summary.negative,   cls: "border-rose-200    bg-rose-50",    v: "text-rose-700"    },
+        ].map((s) => (
+          <div key={s.label} className={`rounded-xl border ${s.cls} px-4 py-3 shadow-sm`}>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-stone-400">{s.label}</div>
+            <div className={`mt-1 text-2xl font-bold ${s.v}`}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* News list */}
+      {news.length > 0 ? (
+        <div className="space-y-3">
+          {news.map((m, i) => <MentionItem key={i} index={i + 1} m={m} />)}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-red-200 bg-red-50/40 py-10 text-center text-sm text-red-400">
+          No news articles found for &ldquo;{seatName}&rdquo;.
+        </div>
+      )}
+
+      {data?.isFallback && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
+          Showing broader UP election news — no specific results found for &ldquo;{seatName}&rdquo;. NewsAPI free tier covers last 30 days only.
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Social Media Card with header tabs ────────────────── */
+const SOCIAL_CARD_TABS = [
+  { id: "social",   label: "Social Media",     icon: LuShare2,    headerBg: "bg-indigo-600" },
+  { id: "news",     label: "News",             icon: LuNewspaper, headerBg: "bg-red-600"    },
+  { id: "mentions", label: "Digital Mentions", icon: LuGlobe,     headerBg: "bg-amber-500"  },
+  { id: "pi",       label: "Popularity Index", icon: LuChartBar,  headerBg: "bg-violet-600" },
+  { id: "sensing",  label: "Social Sensing",   icon: LuRadar,     headerBg: "bg-teal-600"   },
+];
+
+export function SocialMediaCard({ constituencyInfo, winnerName, seatName, allCandidates, polledVotes, token }) {
+  const [activeTab, setActiveTab] = useState("social");
+  const current = SOCIAL_CARD_TABS.find((t) => t.id === activeTab);
+
+  return (
+    <div className="rounded-2xl border border-indigo-200 bg-white overflow-hidden shadow-sm">
+      {/* Header with tabs */}
+      <div className="flex border-b border-black/10">
+        {SOCIAL_CARD_TABS.map((t) => {
+          const isActive = activeTab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-3 text-xs font-bold whitespace-nowrap transition-all border-b-2 ${
+                isActive
+                  ? `${t.headerBg} border-white text-white`
+                  : "bg-slate-100 border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-200"
+              }`}
+            >
+              <t.icon className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden sm:inline">{t.label}</span>
+              <span className="sm:hidden">{t.label.split(" ")[0]}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Content */}
+      <div className="p-5">
+        {activeTab === "social" && (
+          <WinnerSocialSection constituencyInfo={constituencyInfo} winner={winnerName} token={token} />
+        )}
+        {activeTab === "news" && (
+          <NewsTab seatName={seatName} winnerName={winnerName} token={token} />
+        )}
+        {activeTab === "mentions" && (
+          <DigitalMentionsTab seatName={seatName} winnerName={winnerName} token={token} />
+        )}
+        {activeTab === "pi" && (
+          <PopularityIndexTab data={{ candidates: allCandidates, polledVotes, winner: allCandidates.find((c) => c.result === "WINNER") }} />
+        )}
+        {activeTab === "sensing" && (
+          <SocialSensingTab seatName={seatName} candidates={allCandidates} constituencyInfo={constituencyInfo} winnerName={winnerName} token={token} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Losers Table + Navigate to detail page ────────────── */
+function LosersTabPanel({ candidates, polledVotes, winnerVotes, constituencyInfo, winnerName, allCandidates, seatName, token }) {
+  const navigate = useNavigate();
+
+  if (candidates.length === 0)
+    return <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/50 py-12 text-center text-sm text-stone-400">No loser data.</div>;
+
+  const goToCandidate = (c) => {
+    const base = `/admin/election/constituency/${constituencyInfo.bodyType}/${constituencyInfo.year}/seat/${constituencyInfo.seatNo}`;
+    navigate(`${base}/candidate/${encodeURIComponent(c.candidate)}?from=${encodeURIComponent(base + "?tab=loser")}`);
+  };
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+      <div className="bg-rose-600 px-5 py-3 flex items-center gap-2">
+        <LuUsers className="h-4 w-4 text-white" />
+        <span className="text-sm font-bold text-white">Losers — {candidates.length} Candidates</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-200">
+              <th className="px-4 py-2.5 text-left font-bold text-stone-500 uppercase tracking-wide">#</th>
+              <th className="px-4 py-2.5 text-left font-bold text-stone-500 uppercase tracking-wide">Candidate</th>
+              <th className="px-4 py-2.5 text-left font-bold text-stone-500 uppercase tracking-wide">Party</th>
+              <th className="px-4 py-2.5 text-right font-bold text-stone-500 uppercase tracking-wide">Votes</th>
+              <th className="px-4 py-2.5 text-right font-bold text-stone-500 uppercase tracking-wide">Vote %</th>
+              <th className="px-4 py-2.5 text-right font-bold text-stone-500 uppercase tracking-wide">vs Winner</th>
+              <th className="px-4 py-2.5 text-center font-bold text-stone-500 uppercase tracking-wide">Criminal</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {candidates.map((c) => {
+              const isR     = c.result === "RUNNER_UP";
+              const crim    = parseInt(c.criminal?.totalCases, 10) || 0;
+              const deficit = winnerVotes > 0 ? winnerVotes - (c.votes || 0) : null;
+              return (
+                <tr
+                  key={c.candidate}
+                  onClick={() => goToCandidate(c)}
+                  className={`cursor-pointer transition-colors hover:bg-rose-50 ${
+                    isR ? "bg-amber-50/60" : ""
+                  }`}
+                >
+                  <td className="px-4 py-3">
+                    <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white ${
+                      isR ? "bg-amber-500" : "bg-slate-400"
+                    }`}>{c.rank}</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="font-semibold text-slate-800">{c.candidate}</p>
+                    {c.personal?.age && <p className="text-[10px] text-stone-400">Age {c.personal.age}</p>}
+                  </td>
+                  <td className="px-4 py-3"><PartyBadge party={c.party} /></td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-700 tabular-nums">{(c.votes || 0).toLocaleString("en-IN")}</td>
+                  <td className="px-4 py-3 text-right font-bold text-teal-700">{c.votePercent}%</td>
+                  <td className="px-4 py-3 text-right font-medium text-rose-600 tabular-nums">{deficit != null ? `−${deficit.toLocaleString("en-IN")}` : "—"}</td>
+                  <td className="px-4 py-3 text-center">
+                    {crim > 0
+                      ? <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700"><LuTriangleAlert className="h-3 w-3" />{crim}</span>
+                      : <LuShieldCheck className="h-4 w-4 text-emerald-500 mx-auto" />}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Candidate Tab Panel (Winner only now) ─────────────── */
+function CandidateTabPanel({ candidates, polledVotes, winnerVotes, emptyMsg, seatName, seatNo, bodyType, year, constituencyInfo, winnerName, allCandidates, token }) {
+  if (candidates.length === 0)
+    return <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/50 py-12 text-center text-sm text-stone-400">{emptyMsg}</div>;
+
+  return (
+    <div className="space-y-6">
+      {/* Candidate Cards */}
+      {candidates.map((c) => <CandidateCard key={c.candidate} c={c} polledVotes={polledVotes} winnerVotes={winnerVotes} />)}
+
+      {/* Social Media + Digital Mentions + PI + Social Sensing in one card */}
+      <SocialMediaCard
+        constituencyInfo={constituencyInfo}
+        winnerName={winnerName}
+        seatName={seatName}
+        allCandidates={allCandidates}
+        polledVotes={polledVotes}
+        token={token}
+      />
+    </div>
+  );
+}
+
+/* ─── Top Info + Map Panel ───────────────────────────── */
+function TopInfoMapPanel({ data, backTo, seatNo, tab }) {
+  const [mapOpen, setMapOpen] = useState(false);
+
+  return (
+    <>
+      <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
+
+        {/* LEFT: Back link + constituency info + KPI cards */}
+        <div className="rounded-2xl border border-amber-200/70 bg-gradient-to-br from-[#e5efe8] via-[#faf6f0] to-[#f0e6dc] p-5 flex flex-col gap-4">
+          <Link to={backTo} className="inline-flex items-center gap-1.5 text-xs font-medium text-teal-700 hover:text-teal-900 hover:underline w-fit">
+            <LuArrowLeft className="h-3.5 w-3.5" /> Back to Constituency Results
+          </Link>
+
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-emerald-950">
+              {data.seatName}
+              <span className="ml-2 text-sm font-normal text-stone-500">Seat #{data.seatNo}</span>
+            </h1>
+            <div className="mt-1.5 flex flex-wrap gap-3 text-xs text-stone-600">
+              <span className="flex items-center gap-1"><LuMapPin className="h-3 w-3" />{data.district || "Uttar Pradesh"}</span>
+              <span>{data.bodyType?.replace(/_/g, " ")} · {data.year}</span>
+              <span className="flex items-center gap-1"><LuUsers className="h-3 w-3" />{data.totalContestants} candidates</span>
+              {data.polledVotes  > 0 && <span>{Number(data.polledVotes).toLocaleString("en-IN")} votes polled</span>}
+              {data.marginVotes > 0  && <span>Margin: {data.marginVotes.toLocaleString("en-IN")}</span>}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatBox label="Winner"           value={data.winner?.candidate} accent />
+            <StatBox label="Party"            value={data.winner?.party} />
+            <StatBox label="Winner Vote %"    value={`${data.winnerVoteShare}%`} />
+            <StatBox label="Total Candidates" value={String(data.totalContestants)} />
+          </div>
+
+          {/* Viewing Candidate */}
+          {tab === "winner" && data.winner && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3">
+              <p className="text-[10px] font-bold text-stone-400 uppercase tracking-wide mb-1">Viewing Candidate</p>
+              <p className="text-lg font-bold text-emerald-950">{data.winner.candidate}</p>
+              <div className="flex flex-wrap gap-2 mt-1">
+                <span className={`inline-block rounded-full px-2.5 py-0.5 text-[11px] font-bold text-white ${PARTY_COLORS[data.winner.party] || PARTY_COLORS.Others}`}>{data.winner.party}</span>
+                <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800">Winner</span>
+                <span className="text-[11px] text-stone-500">{(data.winner.votes || 0).toLocaleString("en-IN")} votes ({data.winnerVoteShare}%)</span>
+                {data.winner.personal?.age && <span className="text-[11px] text-stone-500">· Age {data.winner.personal.age}</span>}
+              </div>
+            </div>
+          )}
+          {tab === "loser" && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50/60 px-4 py-3">
+              <p className="text-[10px] font-bold text-stone-400 uppercase tracking-wide mb-1">Viewing</p>
+              <p className="text-lg font-bold text-emerald-950">Losers</p>
+              <p className="text-[11px] text-stone-500 mt-0.5">Click any candidate to view their full profile</p>
+            </div>
+          )}
+        </div>
+
+        {/* RIGHT: Mini map with expand button */}
+        <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm cursor-pointer group" onClick={() => setMapOpen(true)}>
+          <div className="bg-[#eb7f2b] px-4 py-2.5 flex items-center gap-2">
+            <LuMapPin className="h-3.5 w-3.5 text-white shrink-0" />
+            <span className="text-xs font-bold text-white tracking-wide truncate">
+              ASSEMBLY ELECTIONS ({data.year})
+            </span>
+            <span className="ml-auto text-[10px] font-medium text-orange-100 shrink-0">Seat #{data.seatNo}</span>
+          </div>
+          <div style={{ height: 220 }} className="bg-[#eef1f4]">
+            <MiniMapContent seatName={data.seatName} seatNo={data.seatNo} bodyType={data.bodyType} year={data.year} />
+          </div>
+          {/* Expand overlay on hover */}
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition flex items-center justify-center">
+            <span className="opacity-0 group-hover:opacity-100 transition flex items-center gap-1.5 rounded-xl bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow">
+              <LuExpand className="h-3.5 w-3.5" /> Click to expand
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Fullscreen Map Modal */}
+      {mapOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/70" onClick={() => setMapOpen(false)}>
+          <div className="flex items-center justify-between bg-[#eb7f2b] px-5 py-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2">
+              <LuMapPin className="h-4 w-4 text-white" />
+              <span className="text-sm font-bold text-white">ASSEMBLY ELECTIONS VIEW BY INDIVIDUAL ELECTIONS ({data.year})</span>
+              <span className="ml-2 text-[11px] text-orange-200">Seat #{data.seatNo} · {data.seatName}</span>
+            </div>
+            <button onClick={() => setMapOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition">
+              <LuX className="h-4 w-4 text-white" />
+            </button>
+          </div>
+          <div className="flex-1" onClick={(e) => e.stopPropagation()}>
+            <MiniMapContent seatName={data.seatName} seatNo={data.seatNo} bodyType={data.bodyType} year={data.year} fullscreen />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function MiniMapContent({ seatName, seatNo, bodyType, year, fullscreen }) {
+  const { token } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [geoJson, setGeoJson] = useState(null);
+  const [winnerParty, setWinnerParty] = useState(null);
+
+  useEffect(() => {
+    if (!seatNo) return;
+    setLoading(true);
+    const qs = new URLSearchParams({
+      bodyType: bodyType || "VIDHAN_SABHA", year: year || "2022",
+      search: String(seatNo), party: "ALL",
+      party2012: "All selected", party2017: "All selected", party2022: "All selected",
+    });
+    api(`/api/admin/election-analytics/UP?${qs}`, { token })
+      .then((d) => {
+        const all = d?.geoJson?.features || [];
+        const seat = all.filter((f) => Number(f.properties?.acNo || f.properties?.seatNo || f.properties?.ac_no) === Number(seatNo));
+        const features = seat.length > 0 ? seat : all;
+        if (features.length > 0) setWinnerParty(features[0].properties?.party || null);
+        setGeoJson({ type: "FeatureCollection", features });
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [seatNo, bodyType, year, token]);
+
+  const geoStyle = useCallback((feature) => {
+    const party = feature?.properties?.party || "Others";
+    return { color: "#374151", weight: 1.5, fillColor: PARTY_MAP_COLORS[party] || PARTY_MAP_COLORS.Others, fillOpacity: 0.85 };
+  }, []);
+
+  const onEachFeature = useCallback((feature, layer) => {
+    const p = feature?.properties || {};
+    layer.bindTooltip(
+      `<div style="font-size:12px;line-height:1.5"><b>${p.constituency || p.acName || seatName}</b><br/>Winner: <b>${p.candidate || "—"}</b><br/>Party: ${p.party || "—"} · ${p.votePercent || "—"}%<br/>Votes: ${(p.votes || 0).toLocaleString("en-IN")}</div>`,
+      { sticky: true, className: "leaflet-tooltip-custom" }
+    );
+  }, [seatName]);
+
+  if (loading) return (
+    <div className="flex h-full items-center justify-center text-sm text-slate-500">
+      <LuRefreshCw className="h-4 w-4 animate-spin mr-2" /> Loading map…
+    </div>
+  );
+
+  if (!geoJson?.features?.length) return (
+    <div className="flex h-full items-center justify-center text-sm text-slate-400">Boundary data not available.</div>
+  );
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="flex-1">
+        <MapContainer
+          key={`map-${seatNo}-${year}-${fullscreen}`}
+          center={[27.5, 80.5]} zoom={7}
+          style={{ height: "100%", width: "100%" }}
+          scrollWheelZoom={!!fullscreen} zoomControl preferCanvas
+        >
+          <FitToConstituency geoJson={geoJson} />
+          <GeoJSON key={geoJson.features.length} data={geoJson} style={geoStyle} onEachFeature={onEachFeature} />
+        </MapContainer>
+      </div>
+      {winnerParty && (
+        <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 flex items-center gap-2 flex-wrap">
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+            <span className="inline-block h-3 w-3 rounded-sm" style={{ background: PARTY_MAP_COLORS[winnerParty] || PARTY_MAP_COLORS.Others }} />
+            {winnerParty} — {seatName}
+          </span>
+          <span className="ml-auto text-[10px] text-stone-400">ECI · {bodyType?.replace(/_/g, " ")} {year}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -865,29 +1441,7 @@ export function ConstituencyDetailPage() {
   return (
     <div className="-m-4 flex min-h-[calc(100dvh-3.5rem)] flex-col bg-[#f3ede4] sm:-m-6">
 
-      {/* Header */}
-      <div className="shrink-0 border-b border-amber-200/70 bg-gradient-to-r from-[#e5efe8] via-[#faf6f0] to-[#f0e6dc] px-4 py-5 sm:px-6">
-        <Link to={backTo} className="inline-flex items-center gap-1.5 text-xs font-medium text-teal-700 hover:text-teal-900 hover:underline">
-          <LuArrowLeft className="h-3.5 w-3.5" /> Back to Constituency Results
-        </Link>
-        {data?.supported ? (
-          <>
-            <h1 className="mt-2 text-2xl font-bold tracking-tight text-emerald-950">
-              {data.seatName}
-              <span className="ml-2 text-sm font-normal text-stone-500">Seat #{data.seatNo}</span>
-            </h1>
-            <div className="mt-1 flex flex-wrap gap-4 text-xs text-stone-600">
-              <span className="flex items-center gap-1"><LuMapPin className="h-3 w-3" />{data.district || "Uttar Pradesh"}</span>
-              <span>{data.bodyType?.replace(/_/g, " ")} · {data.year}</span>
-              <span className="flex items-center gap-1"><LuUsers className="h-3 w-3" />{data.totalContestants} candidates</span>
-              {data.polledVotes  > 0 && <span>{Number(data.polledVotes).toLocaleString("en-IN")} votes polled</span>}
-              {data.marginVotes > 0  && <span>Margin: {data.marginVotes.toLocaleString("en-IN")}</span>}
-            </div>
-          </>
-        ) : (
-          <h1 className="mt-2 text-xl font-bold text-emerald-950">Constituency #{seatNo}</h1>
-        )}
-      </div>
+
 
       {loading ? (
         <div className="flex flex-1 items-center justify-center">
@@ -900,15 +1454,10 @@ export function ConstituencyDetailPage() {
       ) : (
         <div className="flex-1 space-y-4 p-4 sm:p-6">
 
-          {/* KPI row */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatBox label="Winner"           value={data.winner?.candidate} accent />
-            <StatBox label="Party"            value={data.winner?.party} />
-            <StatBox label="Winner Vote %"    value={`${data.winnerVoteShare}%`} />
-            <StatBox label="Total Candidates" value={String(data.totalContestants)} />
-          </div>
+          {/* Top: Info + Map side by side */}
+          <TopInfoMapPanel data={data} backTo={backTo} seatNo={seatNo} tab={tab} />
 
-          {/* 5-Tab bar */}
+          {/* Tab bar */}
           <div className="flex rounded-2xl border border-amber-200/70 bg-[#f0e6dc] p-1 gap-1 overflow-x-auto">
             {TABS.map((t) => (
               <button key={t.id} type="button" onClick={() => setTab(t.id)}
@@ -922,62 +1471,36 @@ export function ConstituencyDetailPage() {
             ))}
           </div>
 
-          {/* Tab: Winner — Card + Map + Popularity Index + Social Sensing */}
+          {/* Tab: Winner */}
           {tab === "winner" && (
-            <div className="space-y-6">
-              {winners.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/50 py-12 text-center text-sm text-stone-400">No winner data.</div>
-              ) : (
-                winners.map((c) => <CandidateCard key={c.candidate} c={c} polledVotes={data.polledVotes || 0} winnerVotes={data.winner?.votes || 0} />)
-              )}
-
-              {/* Constituency Map */}
-              <ConstituencyMap seatName={data.seatName} seatNo={data.seatNo} bodyType={data.bodyType} year={data.year} />
-
-              {/* Popularity Index — embedded in Winner tab */}
-              <div className="rounded-2xl border border-violet-200 bg-white overflow-hidden shadow-sm">
-                <div className="bg-violet-600 px-5 py-3 flex items-center gap-2">
-                  <LuChartBar className="h-4 w-4 text-white" />
-                  <span className="text-sm font-bold text-white">Popularity Index (PI)</span>
-                  <span className="ml-auto text-[11px] text-violet-200">Score 0–100 based on vote share &amp; margin</span>
-                </div>
-                <div className="p-5">
-                  <PopularityIndexTab data={data} />
-                </div>
-              </div>
-
-              {/* Social Sensing — embedded in Winner tab */}
-              <div className="rounded-2xl border border-indigo-200 bg-white overflow-hidden shadow-sm">
-                <div className="bg-indigo-600 px-5 py-3 flex items-center gap-2">
-                  <LuRadar className="h-4 w-4 text-white" />
-                  <span className="text-sm font-bold text-white">Social Sensing</span>
-                  <span className="ml-auto text-[11px] text-indigo-200">Constituency pulse &amp; candidate signals</span>
-                </div>
-                <div className="p-5">
-                  <SocialSensingTab seatName={data.seatName} candidates={data.candidates || []} />
-                </div>
-              </div>
-            </div>
+            <CandidateTabPanel
+              candidates={winners}
+              polledVotes={data.polledVotes || 0}
+              winnerVotes={data.winner?.votes || 0}
+              emptyMsg="No winner data."
+              seatName={data.seatName}
+              seatNo={data.seatNo}
+              bodyType={data.bodyType}
+              year={data.year}
+              constituencyInfo={constituencyInfo}
+              winnerName={data.winner?.candidate}
+              allCandidates={data.candidates || []}
+              token={token}
+            />
           )}
 
           {/* Tab: Losers */}
           {tab === "loser" && (
-            <div className="space-y-4">
-              {losers.length === 0
-                ? <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/50 py-12 text-center text-sm text-stone-400">No loser data.</div>
-                : losers.map((c) => <CandidateCard key={c.candidate} c={c} polledVotes={data.polledVotes || 0} winnerVotes={data.winner?.votes || 0} />)
-              }
-            </div>
-          )}
-
-          {/* Tab: Social Media — Winner only */}
-          {tab === "social" && (
-            <WinnerSocialSection constituencyInfo={constituencyInfo} winner={data.winner?.candidate} token={token} />
-          )}
-
-          {/* Tab: Digital Mentions */}
-          {tab === "mentions" && (
-            <DigitalMentionsTab seatName={data.seatName} winnerName={data.winner?.candidate} token={token} />
+            <LosersTabPanel
+              candidates={losers}
+              polledVotes={data.polledVotes || 0}
+              winnerVotes={data.winner?.votes || 0}
+              constituencyInfo={constituencyInfo}
+              winnerName={data.winner?.candidate}
+              allCandidates={data.candidates || []}
+              seatName={data.seatName}
+              token={token}
+            />
           )}
 
           {/* Source */}

@@ -39,6 +39,8 @@ export function AuthProvider({ children }) {
       const sessionToken = params.get("session");
       if (sessionToken) {
         saveToken(portalRole, sessionToken);
+        setUser(null);
+        setStatus("loading");
         params.delete("session");
         const clean = `${window.location.pathname}${params.toString() ? `?${params}` : ""}`;
         window.history.replaceState({}, "", clean);
@@ -68,7 +70,7 @@ export function AuthProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [portalRole]);
+  }, [portalRole, location.search]);
 
   const value = useMemo(() => {
     return {
@@ -78,6 +80,8 @@ export function AuthProvider({ children }) {
       async login(email, password, role = portalRole) {
         const data = await api(loginEndpoint(role), { method: "POST", body: { email, password } });
         saveToken(role, data.accessToken);
+        setUser(null);
+        setStatus("loading");
         setUser(data.user);
         setStatus("authed");
         return data.user;

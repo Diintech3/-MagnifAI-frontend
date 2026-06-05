@@ -60,12 +60,13 @@ export function ElectionWinnersPanel({ searchParams, onSearchParamsChange }) {
   useEffect(() => {
     if (!onSearchParamsChange) return;
     const p = new URLSearchParams(searchParams || undefined);
-    p.set("tab", "winners");
     p.set("bodyType", bodyType);
     p.set("year", effectiveYear);
     p.set("party", party);
     p.set("page", String(page));
     if (appliedSearch) p.set("search", appliedSearch); else p.delete("search");
+    // preserve tab so switching to Losers is not overwritten
+    if (!p.has("tab")) p.set("tab", "winners");
     onSearchParamsChange(p, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bodyType, effectiveYear, party, page, appliedSearch, onSearchParamsChange]);

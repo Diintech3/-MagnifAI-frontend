@@ -28,6 +28,8 @@ import {
   LuUsers,
   LuVote,
   LuZap,
+  LuRadio,
+  LuAtSign,
 } from "react-icons/lu";
 import { RiAdminLine } from "react-icons/ri";
 
@@ -54,6 +56,9 @@ export const NAV_ICONS = {
   election: wrap(LuVote),
   news: wrap(LuNewspaper),
   newsAnalysis: wrap(LuChartLine),
+  social: wrap(LuShare2),
+  digitalMentions: wrap(LuRadio),
+  appSettings: wrap(LuSettings),
   apps: wrap(LuList),
   candidates: wrap(LuUserRound),
   admins: wrap(RiAdminLine),

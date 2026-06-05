@@ -388,7 +388,7 @@ export function AdminApps() {
 
                   <th className="w-[18%] px-2 py-3 font-semibold">Business</th>
 
-                  <th className="w-[14%] px-2 py-3 font-semibold">Owner</th>
+                  <th className="w-[14%] px-2 py-3 font-semibold">Category</th>
 
                   <th className="w-[18%] px-2 py-3 font-semibold">Contact</th>
 

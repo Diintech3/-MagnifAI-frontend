@@ -4,6 +4,8 @@ import { CandidateOverview } from "./candidate/CandidateOverview";
 import { CandidateProfile } from "./candidate/CandidateProfile";
 import { CandidateSectionPage } from "../components/candidate/CandidateSectionPage";
 import { CandidateDemographyElection } from "./candidate/CandidateDemographyElection";
+import { SettingsPage } from "./shared/SettingsPage";
+import { HelpPage } from "./shared/HelpPage";
 
 const MAIN_NAV = [
   { to: "/candidate", label: "Overview", headerTitle: "Overview", end: true, icon: "overview" },
@@ -15,6 +17,11 @@ const MAIN_NAV = [
   { to: "/candidate/ads", label: "Ads", headerTitle: "Ads", icon: "ads" },
   { to: "/candidate/operation", label: "Operation", headerTitle: "Operation", icon: "operation" },
   { to: "/candidate/consistency", label: "Consistency", headerTitle: "Consistency", icon: "consistency" },
+  { to: "/candidate/news-plan", label: "News Plan", headerTitle: "News Plan", icon: "news" },
+  { to: "/candidate/digital-mention", label: "Digital Mention", headerTitle: "Digital Mention", icon: "analysis" },
+  { to: "/candidate/social-media", label: "Social Media", headerTitle: "Social Media", icon: "distribution" },
+  { to: "/candidate/settings", label: "Settings", headerTitle: "Settings", icon: "appSettings" },
+  { to: "/candidate/help", label: "Help", headerTitle: "Help & Support", icon: "help" },
   {
     id: "demography",
     label: "Demography",
@@ -71,6 +78,11 @@ export function CandidateDashboard() {
           path="consistency"
           element={<CandidateSectionPage section="consistency" title="Consistency" subtitle="Brand and message discipline" />}
         />
+        <Route path="news-plan" element={<CandidateSectionPage section="news-plan" />} />
+        <Route path="digital-mention" element={<CandidateSectionPage section="digital-mention" />} />
+        <Route path="social-media" element={<CandidateSectionPage section="social-media" />} />
+        <Route path="settings" element={<SettingsPage />} />
+        <Route path="help" element={<HelpPage />} />
         <Route
           path="demography"
           element={<CandidateSectionPage section="demography" title="Demography" subtitle="Voter demographic profiles and segment data" />}

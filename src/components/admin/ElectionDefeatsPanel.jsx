@@ -70,7 +70,10 @@ export function ElectionDefeatsPanel({ stateCode, stateName, fullPage = false, s
 
   useEffect(() => {
     if (!onSearchParamsChange) return;
-    onSearchParamsChange(buildDefeatsQuery({ year: effectiveYear, bodyType, rankMode, party, page, search: appliedSearch }), { replace: true });
+    const p = buildDefeatsQuery({ year: effectiveYear, bodyType, rankMode, party, page, search: appliedSearch });
+    // preserve tab so it stays as 'defeated'
+    if (!p.has("tab")) p.set("tab", "defeated");
+    onSearchParamsChange(p, { replace: true });
   }, [effectiveYear, bodyType, rankMode, party, page, appliedSearch, onSearchParamsChange]);
 
   if (stateCode !== "UP") {
