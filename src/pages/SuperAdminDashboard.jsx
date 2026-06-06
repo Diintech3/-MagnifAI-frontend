@@ -13,8 +13,6 @@ export function SuperAdminDashboard() {
       navItems={[
         { to: "/superadmin", label: "Overview", headerTitle: "Super Admin Overview", end: true, icon: "overview" },
         { to: "/superadmin/admins", label: "Admins", headerTitle: "Admins", icon: "admins" },
-        { to: "/superadmin/settings", label: "Settings", headerTitle: "Settings", icon: "appSettings" },
-        { to: "/superadmin/help", label: "Help", headerTitle: "Help & Support", icon: "help" },
       ]}
     >
       <Routes>

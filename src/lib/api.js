@@ -1,5 +1,29 @@
 const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || "").trim().replace(/\/$/, "");
 
+// Convert R2 private URLs or relative /api/public/ paths to fully qualified URL
+export function mediaUrl(url) {
+  if (!url) return null;
+  // Already absolute non-R2 URL (e.g. Unsplash)
+  if (/^https?:\/\/(?!.*\.r2\.cloudflarestorage)/i.test(url)) return url;
+  // Query param proxy format (new uploads)
+  if (url.startsWith("/api/public/logo?key=")) {
+    return API_BASE_URL ? `${API_BASE_URL}${url}` : url;
+  }
+  // Old path-based proxy format /api/public/posts/media/... → convert to query param
+  if (url.startsWith("/api/public/")) {
+    const key = url.replace("/api/public/", "");
+    const proxy = `/api/public/logo?key=${encodeURIComponent(key)}`;
+    return API_BASE_URL ? `${API_BASE_URL}${proxy}` : proxy;
+  }
+  // Old direct R2 URL — extract key and route through proxy
+  const r2Match = url.match(/\.r2\.cloudflarestorage\.com\/[^/]+\/(.+)$/);
+  if (r2Match) {
+    const proxy = `/api/public/logo?key=${encodeURIComponent(r2Match[1])}`;
+    return API_BASE_URL ? `${API_BASE_URL}${proxy}` : proxy;
+  }
+  return url;
+}
+
 function withBase(path) {
   if (!path) return API_BASE_URL || "";
   if (/^https?:\/\//i.test(path)) return path;

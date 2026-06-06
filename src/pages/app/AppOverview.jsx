@@ -80,7 +80,7 @@ export function AppOverview() {
     }
   }
 
-  const businessName = data?.businessName || "Your App";
+  const businessName = data?.businessName || user?.businessName || user?.name || "Your App";
 
   return (
     <div className="space-y-6 p-4 sm:p-6">

@@ -37,8 +37,6 @@ export function AdminDashboard() {
           icon: "apps",
         },
         { to: "/admin/election", label: "Election", headerTitle: "Electoral Analytics", icon: "election" },
-        { to: "/admin/settings", label: "Settings", headerTitle: "Settings", icon: "appSettings" },
-        { to: "/admin/help", label: "Help", headerTitle: "Help & Support", icon: "help" },
       ]}
     >
       <Routes>
