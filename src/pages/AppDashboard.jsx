@@ -8,14 +8,18 @@ import { AppDigitalMentions } from "./app/AppDigitalMentions";
 import { AppSettings } from "./app/AppSettings";
 import { SettingsPage } from "./shared/SettingsPage";
 import { HelpPage } from "./shared/HelpPage";
+import { AppAIAssistant } from "./app/AppAIAssistant";
+import { AppCampaign } from "./app/AppCampaign";
 import { AppProfile } from "./app/AppProfile";
 import { useAuth } from "../auth/AuthProvider";
 
 const FC_NAV = [
-  { to: "/app", label: "Overview", headerTitle: "App Overview", end: true, icon: "overview" },
-  { to: "/app/profile", label: "Profile", headerTitle: "Profile", icon: "profile" },
-  { to: "/app/social", label: "Social Media", headerTitle: "Social Media", icon: "social" },
-  { to: "/app/news", label: "News", headerTitle: "News", icon: "news" },
+  { to: "/app",               label: "Overview",        headerTitle: "App Overview",      end: true, icon: "overview" },
+  { to: "/app/profile",       label: "Profile",          headerTitle: "Profile",           icon: "profile" },
+  { to: "/app/ai-assistant",  label: "AI Assistant",     headerTitle: "HelloPaai",         icon: "social" },
+  { to: "/app/campaign",      label: "Campaign",         headerTitle: "Campaigns",         icon: "ads" },
+  { to: "/app/social",        label: "Social Media",     headerTitle: "Social Media",      icon: "distribution" },
+  { to: "/app/news",          label: "News",             headerTitle: "News",              icon: "news" },
   { to: "/app/digital-mentions", label: "Digital Mentions", headerTitle: "Digital Mentions", icon: "digitalMentions" },
 ];
 
@@ -47,6 +51,8 @@ export function AppDashboard() {
       <Routes>
         <Route index element={<AppOverview />} />
         <Route path="profile" element={<AppProfile />} />
+        <Route path="ai-assistant" element={<AppAIAssistant />} />
+        <Route path="campaign" element={<AppCampaign />} />
         <Route path="social" element={<AppSocialMedia />} />
         <Route path="news" element={<AppNews />} />
         <Route path="digital-mentions" element={<AppDigitalMentions />} />
