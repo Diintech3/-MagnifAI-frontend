@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import {
   LuFolder, LuFolderOpen, LuSearch, LuEye, LuTrash2, LuCopy,
   LuCheck, LuX, LuCalendar, LuArrowLeft, LuPencil, LuPlus,
-  LuSparkles, LuChevronDown, LuLoader, LuSettings2,
+  LuSparkles, LuChevronDown, LuLoader, LuSettings2, LuLayoutGrid, LuMonitor,
 } from "react-icons/lu";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../auth/AuthProvider";
@@ -262,39 +262,71 @@ function ContentCard({ item, folder, onDelete }) {
           style={{ backgroundColor: folder?.color || "#6366f1" }}>
           {(item.contentType || "C").slice(0,2).toUpperCase()}
         </div>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 space-y-1.5">
           <p className="text-sm font-bold text-slate-900 leading-snug line-clamp-2">{title}</p>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {item.contentType && <Badge label={item.contentType} color="indigo" />}
-            {Array.isArray(item.platforms) && item.platforms.length > 0
-              ? item.platforms.map(p => <Badge key={p} label={p} color="violet" />)
-              : item.platform && <Badge label={item.platform} color="violet" />}
-            {item.language    && <Badge label={item.language}    color="slate" />}
-            {item.status      && <Badge label={item.status}      color="emerald" />}
-          </div>
-          <p className="mt-1.5 text-[11px] text-slate-400 flex items-center gap-1">
+
+          {item.contentType && (
+            <div className="flex items-center gap-1.5">
+              <LuLayoutGrid className="h-3 w-3 shrink-0 text-indigo-400" />
+              <span className="text-[10px] font-bold uppercase tracking-wide text-indigo-400">Content</span>
+              <span className="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">{item.contentType}</span>
+            </div>
+          )}
+
+          {(Array.isArray(item.platforms) ? item.platforms.length > 0 : !!item.platform) && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <LuMonitor className="h-3 w-3 shrink-0 text-violet-400" />
+              <span className="text-[10px] font-bold uppercase tracking-wide text-violet-400">Platform</span>
+              {(Array.isArray(item.platforms) && item.platforms.length > 0 ? item.platforms : [item.platform]).map(p => (
+                <span key={p} className="inline-flex items-center rounded-full bg-violet-50 border border-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">{p}</span>
+              ))}
+            </div>
+          )}
+
+          <p className="text-[11px] text-slate-400 flex items-center gap-1">
             <LuCalendar className="h-3 w-3" />{date}
           </p>
         </div>
       </div>
-      <div className="relative shrink-0" ref={ref} onClick={e => e.stopPropagation()}>
-        <button onClick={() => setOpen(p => !p)}
-          className="rounded-xl border border-slate-200 p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition">
-          <LuSettings2 className="h-4 w-4" />
-        </button>
-        {open && (
-          <div className="absolute right-0 top-10 z-30 w-40 rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden">
-            <button onClick={() => { setOpen(false); navigate(`/app/contents/${item._id}`, { state: { folderId: item.folderId, topic: item.topic } }); }}
-              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition">
-              <LuEye className="h-4 w-4" /> View
-            </button>
-            <div className="border-t border-slate-100" />
-            <button onClick={() => { setOpen(false); onDelete(item); }}
-              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition">
-              <LuTrash2 className="h-4 w-4" /> Delete
-            </button>
-          </div>
-        )}
+
+      {/* Right side: language + status + menu */}
+      <div className="shrink-0 flex flex-col items-end gap-2">
+        <div className="relative" ref={ref} onClick={e => e.stopPropagation()}>
+          <button onClick={() => setOpen(p => !p)}
+            className="rounded-xl border border-slate-200 p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition">
+            <LuSettings2 className="h-4 w-4" />
+          </button>
+          {open && (
+            <div className="absolute right-0 top-10 z-30 w-40 rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden">
+              <button onClick={() => { setOpen(false); navigate(`/app/contents/${item._id}`, { state: { folderId: item.folderId, topic: item.topic } }); }}
+                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition">
+                <LuEye className="h-4 w-4" /> View
+              </button>
+              <div className="border-t border-slate-100" />
+              <button onClick={() => { setOpen(false); onDelete(item); }}
+                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition">
+                <LuTrash2 className="h-4 w-4" /> Delete
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          {item.language && (
+            <span className="inline-flex items-center rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600">{item.language}</span>
+          )}
+          {item.status && (
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+              item.status === "published"   ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+              item.status === "completed"   ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+              item.status === "draft"       ? "bg-slate-100 text-slate-600 border-slate-200" :
+              item.status === "rejected"    ? "bg-red-50 text-red-600 border-red-200" :
+              item.status === "pending"     ? "bg-amber-50 text-amber-700 border-amber-200" :
+              item.status === "approved"    ? "bg-blue-50 text-blue-700 border-blue-200" :
+              item.status === "scheduled"   ? "bg-violet-50 text-violet-700 border-violet-200" :
+              "bg-slate-100 text-slate-600 border-slate-200"
+            }`}>{item.status}</span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -303,15 +335,31 @@ function ContentCard({ item, folder, onDelete }) {
 // ── Topic Card ────────────────────────────────────────────
 
 function TopicCard({ topic, items, idx, folder, onTopicClick }) {
-  const typeMap = {}, platMap = {};
+  const typeMap = {}, platMap = {}, statMap = {};
   items.forEach(c => {
     if (c.contentType) typeMap[c.contentType] = (typeMap[c.contentType]||0)+1;
     if (c.platform)    platMap[c.platform]    = (platMap[c.platform]   ||0)+1;
+    if (c.status)      statMap[c.status]      = (statMap[c.status]     ||0)+1;
   });
   const latest = items.reduce((a,b) => new Date(a.createdAt)>new Date(b.createdAt)?a:b, items[0]);
   const latestDate = latest?.createdAt
     ? new Date(latest.createdAt).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})
     : "—";
+  const latestTime = latest?.createdAt
+    ? new Date(latest.createdAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",hour12:true})
+    : "";
+
+  const statusCls = {
+    draft:       "bg-slate-100 text-slate-600 border-slate-200",
+    published:   "bg-emerald-50 text-emerald-700 border-emerald-200",
+    completed:   "bg-emerald-50 text-emerald-700 border-emerald-200",
+    pending:     "bg-amber-50 text-amber-700 border-amber-200",
+    approved:    "bg-blue-50 text-blue-700 border-blue-200",
+    rejected:    "bg-red-50 text-red-600 border-red-200",
+    scheduled:   "bg-violet-50 text-violet-700 border-violet-200",
+    assigned:    "bg-cyan-50 text-cyan-700 border-cyan-200",
+    verified:    "bg-teal-50 text-teal-700 border-teal-200",
+  };
 
   return (
     <div className="rounded-2xl border border-white bg-white shadow-sm overflow-hidden hover:shadow-xl hover:bg-slate-50 hover:-translate-y-0.5 hover:scale-[1.01] transition-all duration-200 cursor-pointer"
@@ -327,21 +375,53 @@ function TopicCard({ topic, items, idx, folder, onTopicClick }) {
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Topic</p>
             <p className="text-sm font-bold text-slate-900 leading-snug mt-0.5 line-clamp-2">{topic}</p>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {Object.entries(typeMap).map(([k,v]) => (
-              <span key={k} className="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700">
-                {k} <span className="ml-1 font-bold text-indigo-500">{v}</span>
-              </span>
-            ))}
-            {Object.keys(platMap).map(k => (
-              <span key={k} className="inline-flex items-center rounded-full bg-violet-50 border border-violet-100 px-2.5 py-0.5 text-[11px] font-semibold text-violet-700">
-                {k}
+
+          {Object.keys(typeMap).length > 0 && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5">
+                <LuLayoutGrid className="h-3 w-3 shrink-0 text-indigo-400" />
+                <span className="text-[10px] font-bold uppercase tracking-wide text-indigo-400">Content</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(typeMap).map(([k, v]) => (
+                  <span key={k} className="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
+                    {k} · {v}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {Object.keys(platMap).length > 0 && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5">
+                <LuMonitor className="h-3 w-3 shrink-0 text-violet-400" />
+                <span className="text-[10px] font-bold uppercase tracking-wide text-violet-400">Platform</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(platMap).map(([k, v]) => (
+                  <span key={k} className="inline-flex items-center rounded-full bg-violet-50 border border-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                    {k} · {v}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right side: date + status */}
+        <div className="shrink-0 flex flex-col items-end gap-2 min-w-[90px]">
+          <div className="flex flex-col items-end gap-0.5">
+            <span className="text-[11px] font-semibold text-slate-700">{latestDate}</span>
+            <span className="text-[10px] text-slate-400">{latestTime}</span>
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            {Object.entries(statMap).map(([s, v]) => (
+              <span key={s} className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusCls[s] || "bg-slate-50 text-slate-600 border-slate-200"}`}>
+                {s} ({v})
               </span>
             ))}
           </div>
-          <p className="text-[11px] text-slate-400 flex items-center gap-1">
-            <LuCalendar className="h-3 w-3" /> Latest: {latestDate}
-          </p>
         </div>
       </div>
     </div>
@@ -367,7 +447,7 @@ function TopicContents({ topic, items, folder, onBack, onDelete }) {
           <div className="h-8 w-1.5 rounded-full" style={{ backgroundColor: folder.color }} />
           <div>
             <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">Topic</p>
-            <h2 className="text-base font-bold text-slate-900 leading-snug">{topic}</h2>
+            <h2 className="text-base font-bold text-slate-900 leading-snug">{topic} <span className="text-slate-400 font-semibold">({items.length})</span></h2>
           </div>
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
@@ -483,7 +563,7 @@ function FolderContents({ folder, token, onBack, initialTopic }) {
           </button>
           <div className="h-8 w-1.5 rounded-full" style={{ backgroundColor: folder.color }} />
           <div>
-            <h2 className="text-lg font-bold text-slate-900">{folder.name}</h2>
+            <h2 className="text-lg font-bold text-slate-900">{folder.name} <span className="text-slate-400 font-semibold text-base">({contents.length})</span></h2>
             <p className="text-xs text-slate-400">
               {topics.length} topic{topics.length !== 1 ? "s" : ""} &middot; {contents.length} content{contents.length !== 1 ? "s" : ""}
             </p>
@@ -541,6 +621,241 @@ function FolderContents({ folder, token, onBack, initialTopic }) {
   );
 }
 
+// ── Folder View Modal ────────────────────────────────────
+
+function FolderViewModal({ folder, typeMap, platMap, onClose, onEdit, onOpen }) {
+  if (!folder) return null;
+  const catCls = {
+    Alpha: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    Beta:  "bg-amber-50 text-amber-700 border-amber-200",
+    Gamma: "bg-slate-50 text-slate-600 border-slate-200",
+  };
+  const totalContents = Object.values(typeMap).reduce((s, v) => s + v, 0);
+  const totalPlatforms = Object.keys(platMap).length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button type="button" className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
+        {/* Colored top banner */}
+        <div className="h-2 w-full" style={{ backgroundColor: folder.color }} />
+        {/* Header */}
+        <div className="flex items-start justify-between px-6 pt-5 pb-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-12 w-12 items-center justify-center rounded-xl text-white shadow-md"
+              style={{ backgroundColor: folder.color }}>
+              <LuFolder className="h-6 w-6" />
+            </span>
+            <div>
+              <h3 className="text-base font-bold text-slate-900">{folder.name}</h3>
+              {folder.category && (
+                <span className={`mt-1 inline-block text-[10px] font-bold px-2 py-0.5 rounded-full border ${catCls[folder.category] || catCls.Gamma}`}>
+                  {folder.category}
+                </span>
+              )}
+            </div>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100">
+            <LuX className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="px-6 pb-6 space-y-4">
+          {/* Description */}
+          {folder.description && (
+            <p className="text-sm text-slate-500 leading-relaxed">{folder.description}</p>
+          )}
+
+          {/* Stats row */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-xl bg-slate-50 border border-slate-100 p-3 text-center">
+              <p className="text-lg font-bold text-slate-900">{folder.contentCount || totalContents || 0}</p>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Contents</p>
+            </div>
+            <div className="rounded-xl bg-indigo-50 border border-indigo-100 p-3 text-center">
+              <p className="text-lg font-bold text-indigo-700">{Object.keys(typeMap).length}</p>
+              <p className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wide">Types</p>
+            </div>
+            <div className="rounded-xl bg-violet-50 border border-violet-100 p-3 text-center">
+              <p className="text-lg font-bold text-violet-700">{totalPlatforms}</p>
+              <p className="text-[10px] font-semibold text-violet-400 uppercase tracking-wide">Platforms</p>
+            </div>
+          </div>
+
+          {/* Content types */}
+          {Object.keys(typeMap).length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <LuLayoutGrid className="h-3.5 w-3.5 text-indigo-400" />
+                <span className="text-[11px] font-bold uppercase tracking-wide text-indigo-400">Content</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(typeMap).map(([k, v]) => (
+                  <span key={k} className="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700">
+                    {k} · {v}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Platforms */}
+          {Object.keys(platMap).length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <LuMonitor className="h-3.5 w-3.5 text-violet-400" />
+                <span className="text-[11px] font-bold uppercase tracking-wide text-violet-400">Platform</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(platMap).map(([k, v]) => (
+                  <span key={k} className="inline-flex items-center rounded-full bg-violet-50 border border-violet-100 px-2.5 py-0.5 text-[11px] font-semibold text-violet-700">
+                    {k} · {v}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Created date */}
+          {folder.createdAt && (
+            <p className="flex items-center gap-1.5 text-xs text-slate-400">
+              <LuCalendar className="h-3.5 w-3.5" />
+              Created {new Date(folder.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+              {" · "}
+              {new Date(folder.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true })}
+            </p>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-2 pt-1 border-t border-slate-100">
+            <button onClick={() => { onClose(); onEdit(); }}
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+              <LuPencil className="h-4 w-4" /> Edit
+            </button>
+            <button onClick={() => { onClose(); onOpen(); }}
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-indigo-600 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition">
+              <LuFolderOpen className="h-4 w-4" /> Open Folder
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Folder Card ──────────────────────────────────────────
+
+function FolderCard({ folder, displayNum, typeMap, platMap, catCls, onOpen, onEdit, onDelete, onView }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handle(e) { if (ref.current && !ref.current.contains(e.target)) setMenuOpen(false); }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+
+  const hasContent = Object.keys(typeMap).length > 0;
+  const hasPlatform = Object.keys(platMap).length > 0;
+
+  return (
+    <div className="rounded-2xl border border-white bg-white shadow-sm overflow-hidden hover:shadow-xl hover:-translate-y-0.5 hover:scale-[1.01] transition-all duration-200">
+      <div className="relative flex items-start gap-4 px-5 py-4 cursor-pointer" onClick={onOpen}>
+        <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: folder.color }} />
+        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-xs font-bold text-slate-500">
+          {displayNum}
+        </span>
+        <span className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-sm"
+          style={{ backgroundColor: folder.color }}>
+          <LuFolder className="h-5 w-5" />
+        </span>
+        <div className="flex-1 min-w-0 space-y-2">
+          {/* Name row */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-bold text-slate-900">{folder.name}</p>
+            {folder.category && (
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${catCls[folder.category] || catCls.Gamma}`}>
+                {folder.category}
+              </span>
+            )}
+            <span className="text-xs font-semibold text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">
+              {folder.contentCount || 0} contents
+            </span>
+            {folder.createdAt && (
+              <span className="text-[10px] text-slate-400">
+                {new Date(folder.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                {" "}
+                {new Date(folder.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true })}
+              </span>
+            )}
+          </div>
+          {folder.description && <p className="text-xs text-slate-400 line-clamp-1">{folder.description}</p>}
+
+          {/* Content badges */}
+          {hasContent && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5">
+                <LuLayoutGrid className="h-3 w-3 shrink-0 text-indigo-400" />
+                <span className="text-[10px] font-bold uppercase tracking-wide text-indigo-400">Content</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(typeMap).map(([k, v]) => (
+                  <span key={k} className="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
+                    {k} · {v}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Platform badges */}
+          {hasPlatform && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5">
+                <LuMonitor className="h-3 w-3 shrink-0 text-violet-400" />
+                <span className="text-[10px] font-bold uppercase tracking-wide text-violet-400">Platform</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(platMap).map(([k, v]) => (
+                  <span key={k} className="inline-flex items-center rounded-full bg-violet-50 border border-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                    {k} · {v}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Settings dropdown */}
+        <div className="relative shrink-0" ref={ref} onClick={e => e.stopPropagation()}>
+          <button onClick={() => setMenuOpen(p => !p)}
+            className="rounded-xl border border-slate-200 p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition">
+            <LuSettings2 className="h-4 w-4" />
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-10 z-30 w-40 rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden">
+              <button onClick={() => { setMenuOpen(false); onView(); }}
+                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition">
+                <LuEye className="h-4 w-4" /> View
+              </button>
+              <div className="border-t border-slate-100" />
+              <button onClick={() => { setMenuOpen(false); onEdit(); }}
+                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition">
+                <LuPencil className="h-4 w-4" /> Edit
+              </button>
+              <div className="border-t border-slate-100" />
+              <button onClick={() => { setMenuOpen(false); onDelete(); }}
+                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition">
+                <LuTrash2 className="h-4 w-4" /> Delete
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main AppContents ───────────────────────────────────────
 
 export function AppContents() {
@@ -555,6 +870,7 @@ export function AppContents() {
   const [folderContents, setFolderContents] = useState({});
   const [contentsLoading, setContentsLoading] = useState({});
   const [viewItem, setViewItem] = useState(null);
+  const [viewFolder, setViewFolder] = useState(null);
   const [openFolder, setOpenFolder] = useState(null);
   const [folderSearch, setFolderSearch] = useState("");
   const [folderOrder, setFolderOrder] = useState("asc");
@@ -704,83 +1020,39 @@ export function AppContents() {
               const contents  = folderContents[folder._id] || [];
               const isLoading = contentsLoading[folder._id];
 
-              const typeMap = {}, platMap = {}, statMap = {};
+              const typeMap = {}, platMap = {};
               contents.forEach(c => {
                 if (c.contentType) typeMap[c.contentType] = (typeMap[c.contentType]||0)+1;
                 if (c.platform)    platMap[c.platform]    = (platMap[c.platform]   ||0)+1;
-                if (c.status)      statMap[c.status]      = (statMap[c.status]     ||0)+1;
               });
 
               return (
-                <div key={folder._id} className="rounded-2xl border border-white bg-white shadow-sm overflow-hidden hover:shadow-xl hover:bg-slate-50 hover:-translate-y-0.5 hover:scale-[1.01] transition-all duration-200">
-                  <div className="relative flex items-start gap-4 px-5 py-4 cursor-pointer hover:bg-slate-50 transition"
-                    onClick={() => setOpenFolder(folder)}>
-                    <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: folder.color }} />
-                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-xs font-bold text-slate-500">
-                      {displayNum}
-                    </span>
-                    <span className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-sm"
-                      style={{ backgroundColor: folder.color }}>
-                      <LuFolder className="h-5 w-5" />
-                    </span>
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-bold text-slate-900">{folder.name}</p>
-                        {folder.category && (
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${catCls[folder.category] || catCls.Gamma}`}>
-                            {folder.category}
-                          </span>
-                        )}
-                        <span className="text-xs font-semibold text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">
-                          {folder.contentCount || 0} contents
-                        </span>
-                        {folder.createdAt && (
-                          <span className="text-[10px] text-slate-400">
-                            {new Date(folder.createdAt).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})}
-                            {" "}
-                            {new Date(folder.createdAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",hour12:true})}
-                          </span>
-                        )}
-                      </div>
-                      {folder.description && <p className="text-xs text-slate-400 line-clamp-1">{folder.description}</p>}
-                      {contents.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 pt-1">
-                          {Object.entries(typeMap).map(([k,v]) => (
-                            <span key={k} className="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
-                              {k} · {v}
-                            </span>
-                          ))}
-                          {Object.entries(platMap).map(([k,v]) => (
-                            <span key={k} className="inline-flex items-center rounded-full bg-violet-50 border border-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
-                              {k} · {v}
-                            </span>
-                          ))}
-                          {Object.entries(statMap).map(([k,v]) => (
-                            <span key={k} className="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                              {k} · {v}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <div className="shrink-0 flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                      <button onClick={() => { setEditFolder(folder); setModalOpen(true); }}
-                        className="rounded-lg border border-slate-200 p-1.5 text-slate-400 hover:bg-slate-100 transition">
-                        <LuPencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button onClick={() => onDeleteFolder(folder)}
-                        className="rounded-lg border border-red-100 p-1.5 text-red-400 hover:bg-red-50 transition">
-                        <LuTrash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                <FolderCard
+                  key={folder._id}
+                  folder={folder}
+                  displayNum={displayNum}
+                  typeMap={typeMap}
+                  platMap={platMap}
+                  catCls={catCls}
+                  onOpen={() => setOpenFolder(folder)}
+                  onEdit={() => { setEditFolder(folder); setModalOpen(true); }}
+                  onDelete={() => onDeleteFolder(folder)}
+                  onView={() => setViewFolder({ folder, typeMap, platMap })}
+                />
               );
             })}
         </div>
       )}
 
       <ContentViewModal item={viewItem} onClose={() => setViewItem(null)} token={token} />
+      <FolderViewModal
+        folder={viewFolder?.folder || null}
+        typeMap={viewFolder?.typeMap || {}}
+        platMap={viewFolder?.platMap || {}}
+        onClose={() => setViewFolder(null)}
+        onEdit={() => { setEditFolder(viewFolder.folder); setModalOpen(true); }}
+        onOpen={() => { setOpenFolder(viewFolder.folder); setViewFolder(null); }}
+      />
       <FolderModal
         open={modalOpen}
         onClose={() => { setModalOpen(false); setEditFolder(null); }}
