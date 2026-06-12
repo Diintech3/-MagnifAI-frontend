@@ -262,7 +262,7 @@ function DemographyNewsSection({ data }) {
   const p = data?.data || {};
   return (
     <div className="space-y-6">
-      <SectionHeader title="News" subtitle="Regional election news feed" Icon={LuFileText} color="bg-gradient-to-br from-blue-500 to-indigo-600" />
+      <SectionHeader title="Local News" subtitle="Regional election news feed" Icon={LuFileText} color="bg-gradient-to-br from-blue-500 to-indigo-600" />
       {p.articles?.length ? (
         <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white overflow-hidden">
           {p.articles.map((a, i) => (
@@ -334,7 +334,7 @@ const STATUS_COLOR = {
 function NewsPlanSection() {
   return (
     <div className="space-y-6">
-      <SectionHeader title="News Plan" subtitle="Daily 100 news posts across 10 platforms — 10 posts each" Icon={LuNewspaper} color="bg-gradient-to-br from-blue-500 to-indigo-600" />
+      <SectionHeader title="News" subtitle="Daily 100 news posts across 10 platforms — 10 posts each" Icon={LuNewspaper} color="bg-gradient-to-br from-blue-500 to-indigo-600" />
       <div className="grid gap-4 sm:grid-cols-4">
         <StatBox label="Daily Target" value="100" sub="News posts/day" color="bg-indigo-50 border-indigo-200" />
         <StatBox label="Platforms" value="10" sub="Active channels" color="bg-blue-50 border-blue-200" />

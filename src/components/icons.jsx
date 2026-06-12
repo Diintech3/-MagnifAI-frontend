@@ -30,6 +30,18 @@ import {
   LuZap,
   LuRadio,
   LuAtSign,
+  LuSparkles,
+  LuGrid3X3,
+  LuBookOpen,
+  LuCalendar,
+  LuTrendingUp,
+  LuSend,
+  LuGlobe,
+  LuImage,
+  LuCode,
+  LuCreditCard,
+  LuBuilding2,
+  LuTarget,
 } from "react-icons/lu";
 import { RiAdminLine } from "react-icons/ri";
 
@@ -63,6 +75,20 @@ export const NAV_ICONS = {
   candidates: wrap(LuUserRound),
   admins: wrap(RiAdminLine),
   users: wrap(LuUsers),
+  // CEO Content OS icons
+  aiGenerator: wrap(LuSparkles),
+  matrix: wrap(LuGrid3X3),
+  promptLibrary: wrap(LuBookOpen),
+  calendar: wrap(LuCalendar),
+  popularity: wrap(LuTrendingUp),
+  queue: wrap(LuSend),
+  workspace: wrap(LuUser),
+  mediaLibrary: wrap(LuImage),
+  apiCenter: wrap(LuCode),
+  billing: wrap(LuCreditCard),
+  companies: wrap(LuBuilding2),
+  campaign: wrap(LuTarget),
+  globe: wrap(LuGlobe),
 };
 
 export function getNavIcon(key) {

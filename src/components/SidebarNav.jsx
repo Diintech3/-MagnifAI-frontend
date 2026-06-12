@@ -6,10 +6,16 @@ function cn(...xs) {
   return xs.filter(Boolean).join(" ");
 }
 
-function NavItemLink({ item, sidebarExpanded }) {
-  const Icon = getNavIcon(item.icon);
-  const nested = Boolean(item.nested);
+function isChildActive(child, pathname) {
+  return child.end ? pathname === child.to : pathname.startsWith(child.to);
+}
 
+function isGroupActive(group, pathname) {
+  return group.children?.some(c => isChildActive(c, pathname));
+}
+
+function NavItemLink({ item, sidebarExpanded, nested = false }) {
+  const Icon = getNavIcon(item.icon);
   return (
     <NavLink
       to={item.to}
@@ -19,7 +25,7 @@ function NavItemLink({ item, sidebarExpanded }) {
         cn(
           "flex items-center rounded-lg border-l-4 font-medium transition",
           sidebarExpanded
-            ? cn("gap-2.5 py-1.5 text-[13px]", nested ? "ml-3 pl-2" : "px-2.5")
+            ? cn("gap-2.5 py-1.5 text-[13px]", nested ? "ml-3 pl-2 pr-2" : "px-2.5")
             : "justify-center border-l-0 px-0 py-2.5",
           isActive
             ? sidebarExpanded
@@ -30,7 +36,9 @@ function NavItemLink({ item, sidebarExpanded }) {
       }
     >
       {nested && sidebarExpanded ? (
-        <IconNested className="h-4 w-4 shrink-0 text-slate-500" />
+        <span className="h-4 w-4 shrink-0 flex items-center justify-center">
+          <span className="h-1.5 w-1.5 rounded-full bg-slate-600" />
+        </span>
       ) : (
         <Icon className="h-5 w-5 shrink-0" />
       )}
@@ -39,35 +47,20 @@ function NavItemLink({ item, sidebarExpanded }) {
   );
 }
 
-function NavGroup({ group, sidebarExpanded }) {
+function NavGroup({ group, sidebarExpanded, isOpen, onToggle }) {
   const location = useLocation();
-  const groupId = group.id || group.label;
-  const basePath = group.to;
-
-  const isGroupActive =
-    location.pathname === basePath ||
-    location.pathname.startsWith(`${basePath}/`) ||
-    group.children?.some((c) =>
-      c.end ? location.pathname === c.to : location.pathname.startsWith(c.to),
-    );
-
-  const [open, setOpen] = useState(isGroupActive);
-
-  useEffect(() => {
-    if (isGroupActive) setOpen(true);
-  }, [isGroupActive]);
-
+  const active = isGroupActive(group, location.pathname);
   const Icon = getNavIcon(group.icon);
 
   if (!sidebarExpanded) {
     return (
       <NavLink
-        to={group.children?.[0]?.to || basePath}
+        to={group.children?.[0]?.to || group.to}
         title={group.label}
-        className={({ isActive }) =>
+        className={() =>
           cn(
             "flex justify-center rounded-lg py-2.5 transition",
-            isActive || isGroupActive ? "bg-indigo-600/30 text-white" : "text-slate-400 hover:bg-slate-800/80 hover:text-white",
+            active ? "bg-indigo-600/30 text-white" : "text-slate-400 hover:bg-slate-800/80 hover:text-white",
           )
         }
       >
@@ -77,42 +70,69 @@ function NavGroup({ group, sidebarExpanded }) {
   }
 
   return (
-    <div className="space-y-0.5">
+    <div>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={onToggle}
         className={cn(
           "flex w-full items-center gap-2.5 rounded-lg border-l-4 px-2.5 py-1.5 text-left text-[13px] font-medium transition",
-          isGroupActive
+          active
             ? "border-indigo-400 bg-indigo-600/25 text-white"
             : "border-transparent text-slate-400 hover:bg-slate-800/80 hover:text-white",
         )}
       >
         <Icon className="h-5 w-5 shrink-0" />
         <span className="min-w-0 flex-1 truncate">{group.label}</span>
-        <IconNavChevron className={cn("h-4 w-4 shrink-0 text-slate-500 transition", open && "rotate-180")} />
+        <IconNavChevron
+          className={cn("h-4 w-4 shrink-0 text-slate-500 transition-transform duration-200", isOpen && "rotate-180")}
+        />
       </button>
-      {open ? (
-        <div className="space-y-0.5 pb-1">
-          {group.children?.map((child) => (
-            <NavItemLink key={child.to} item={{ ...child, nested: true }} sidebarExpanded={sidebarExpanded} />
+
+      {isOpen && (
+        <div className="mt-0.5 mb-1 space-y-0.5">
+          {group.children?.map(child => (
+            <NavItemLink key={child.to} item={child} sidebarExpanded={sidebarExpanded} nested />
           ))}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
 
 export function SidebarNav({ navItems, sidebarExpanded }) {
+  const location = useLocation();
+
+  // Find which group should be open based on current route
+  const activeGroupId = navItems.find(
+    item => item.children?.length && isGroupActive(item, location.pathname)
+  )?.id || null;
+
+  const [openGroupId, setOpenGroupId] = useState(activeGroupId);
+
+  // Update open group when route changes
+  useEffect(() => {
+    if (activeGroupId) setOpenGroupId(activeGroupId);
+  }, [activeGroupId]);
+
+  function handleToggle(id) {
+    setOpenGroupId(prev => (prev === id ? null : id));
+  }
+
   return (
-    <>
-      {navItems.map((item) =>
+    <div className="space-y-0.5">
+      {navItems.map(item =>
         item.children?.length ? (
-          <NavGroup key={item.id || item.label} group={item} sidebarExpanded={sidebarExpanded} />
+          <NavGroup
+            key={item.id || item.label}
+            group={item}
+            sidebarExpanded={sidebarExpanded}
+            isOpen={openGroupId === (item.id || item.label)}
+            onToggle={() => handleToggle(item.id || item.label)}
+          />
         ) : (
           <NavItemLink key={item.to} item={item} sidebarExpanded={sidebarExpanded} />
-        ),
+        )
       )}
-    </>
+    </div>
   );
 }
