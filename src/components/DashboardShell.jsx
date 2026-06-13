@@ -9,7 +9,7 @@ function cn(...xs) {
   return xs.filter(Boolean).join(" ");
 }
 
-export function DashboardShell({ portalLabel, loginPath, navItems, children, flatContent = false }) {
+export function DashboardShell({ portalLabel, loginPath, navItems, children, flatContent = false, fullscreen = false }) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -58,6 +58,14 @@ export function DashboardShell({ portalLabel, loginPath, navItems, children, fla
     logout();
     toastSuccess("Logged out successfully");
     navigate(loginPath, { replace: true });
+  }
+
+  if (fullscreen) {
+    return (
+      <div className="min-h-dvh bg-slate-50">
+        {children}
+      </div>
+    );
   }
 
   return (

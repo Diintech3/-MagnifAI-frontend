@@ -19,6 +19,7 @@ import { AppPopularityIndex } from "./app/AppPopularityIndex";
 import { AppContents } from "./app/AppContents";
 import { AppCreateContent } from "./app/AppCreateContent";
 import { AppContentDetail } from "./app/AppContentDetail";
+import { AppContentEditor } from "./app/AppContentEditor";
 import { SpiritualDashboard } from "./app/SpiritualDashboard";
 import { ChangeMakerDashboard } from "./app/ChangeMakerDashboard";
 import { FounderDashboard } from "./app/FounderDashboard";
@@ -71,6 +72,8 @@ export function AppDashboard() {
   const isManager = user?.showCandidates === true;
   const location = useLocation();
   const isDetailPage = /^\/app\/contents\/[^/]+$/.test(location.pathname);
+  const isEditorPage = /^\/app\/contents\/[^/]+\/edit$/.test(location.pathname);
+  const isFullPageContent = isDetailPage || isEditorPage;
 
   // Founder dashboard
   if (dashboardType === "founder") {
@@ -135,9 +138,21 @@ export function AppDashboard() {
   }
 
   // Default CEO Content OS dashboard
+  // Editor page — completely bypass shell (true full screen)
+  if (isEditorPage) {
+    return (
+      <GenerationProvider>
+        <Routes>
+          <Route path="contents/:id/edit" element={<AppContentEditor />} />
+          <Route path="*" element={<Navigate to="/app" replace />} />
+        </Routes>
+      </GenerationProvider>
+    );
+  }
+
   return (
     <GenerationProvider>
-    <DashboardShell loginPath="/app/login" portalLabel="CEO CONTENT OS" navItems={FC_NAV} flatContent={isDetailPage}>
+    <DashboardShell loginPath="/app/login" portalLabel="CEO CONTENT OS" navItems={FC_NAV} flatContent={isFullPageContent}>
       <Routes>
         <Route index element={<AppOverview />} />
         <Route path="profile"          element={<AppProfile />} />
@@ -152,6 +167,7 @@ export function AppDashboard() {
         <Route path="digital-mentions" element={<AppDigitalMentions />} />
         <Route path="contents"          element={<AppContents />} />
         <Route path="contents/create"    element={<AppCreateContent />} />
+        <Route path="contents/:id/edit"  element={<AppContentEditor />} />
         <Route path="contents/:id"       element={<AppContentDetail />} />
         <Route path="settings"         element={<AppSettings />} />
         <Route path="help"             element={<HelpPage />} />
