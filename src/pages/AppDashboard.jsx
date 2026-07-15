@@ -71,20 +71,31 @@ export function AppDashboard() {
   const dashboardType = user?.dashboardType || "default";
   const isManager = user?.showCandidates === true;
   const location = useLocation();
-  const isDetailPage = /^\/app\/contents\/[^/]+$/.test(location.pathname);
-  const isEditorPage = /^\/app\/contents\/[^/]+\/edit$/.test(location.pathname);
+
+  const basePath = location.pathname.startsWith("/ceo") ? "/ceo" : "/app";
+  const isDetailPage = new RegExp("^" + basePath + "/contents/[^/]+$").test(location.pathname);
+  const isEditorPage = new RegExp("^" + basePath + "/contents/[^/]+/edit$").test(location.pathname);
   const isFullPageContent = isDetailPage || isEditorPage;
+
+  const loginPath = basePath === "/ceo" ? "/ceo/login" : "/app/login";
+
+  // Map nav paths dynamically to basePath
+  const fcNav = FC_NAV.map(item => ({ ...item, to: item.to.replace("/app", basePath) }));
+  const managerNav = MANAGER_NAV.map(item => ({ ...item, to: item.to.replace("/app", basePath) }));
+  const spiritualNav = SPIRITUAL_NAV.map(item => ({ ...item, to: item.to.replace("/app", basePath) }));
+  const changemakerNav = CHANGEMAKER_NAV.map(item => ({ ...item, to: item.to.replace("/app", basePath) }));
+  const founderNav = FOUNDER_NAV.map(item => ({ ...item, to: item.to.replace("/app", basePath) }));
 
   // Founder dashboard
   if (dashboardType === "founder") {
     return (
-      <DashboardShell loginPath="/app/login" portalLabel="FOUNDER OS" navItems={FOUNDER_NAV}>
+      <DashboardShell loginPath={loginPath} portalLabel="FOUNDER OS" navItems={founderNav}>
         <Routes>
           <Route index    element={<AppOverview />} />
           <Route path="ceos"     element={<FounderDashboard />} />
           <Route path="settings" element={<AppSettings />} />
           <Route path="help"     element={<HelpPage />} />
-          <Route path="*"        element={<Navigate to="/app" replace />} />
+          <Route path="*"        element={<Navigate to={basePath} replace />} />
         </Routes>
       </DashboardShell>
     );
@@ -93,14 +104,14 @@ export function AppDashboard() {
   // Change Maker dashboard
   if (dashboardType === "changemaker") {
     return (
-      <DashboardShell loginPath="/app/login" portalLabel="CHANGE MAKER OS" navItems={CHANGEMAKER_NAV}>
+      <DashboardShell loginPath={loginPath} portalLabel="CHANGE MAKER OS" navItems={changemakerNav}>
         <Routes>
           <Route index element={<ChangeMakerDashboard />} />
           <Route path="social"   element={<AppSocialMedia />} />
           <Route path="news"     element={<AppNews />} />
           <Route path="settings" element={<AppSettings />} />
           <Route path="help"     element={<HelpPage />} />
-          <Route path="*"        element={<Navigate to="/app" replace />} />
+          <Route path="*"        element={<Navigate to={basePath} replace />} />
         </Routes>
       </DashboardShell>
     );
@@ -109,14 +120,14 @@ export function AppDashboard() {
   // Spiritual Guru dashboard
   if (dashboardType === "spiritual") {
     return (
-      <DashboardShell loginPath="/app/login" portalLabel="SPIRITUAL GURU OS" navItems={SPIRITUAL_NAV}>
+      <DashboardShell loginPath={loginPath} portalLabel="SPIRITUAL GURU OS" navItems={spiritualNav}>
         <Routes>
           <Route index element={<SpiritualDashboard />} />
           <Route path="social"   element={<AppSocialMedia />} />
           <Route path="news"     element={<AppNews />} />
           <Route path="settings" element={<AppSettings />} />
           <Route path="help"     element={<HelpPage />} />
-          <Route path="*"        element={<Navigate to="/app" replace />} />
+          <Route path="*"        element={<Navigate to={basePath} replace />} />
         </Routes>
       </DashboardShell>
     );
@@ -125,13 +136,13 @@ export function AppDashboard() {
   // Candidate manager dashboard
   if (isManager) {
     return (
-      <DashboardShell loginPath="/app/login" portalLabel="APP PORTAL" navItems={MANAGER_NAV}>
+      <DashboardShell loginPath={loginPath} portalLabel="APP PORTAL" navItems={managerNav}>
         <Routes>
           <Route index element={<AppOverview />} />
           <Route path="candidates" element={<AppCandidates />} />
           <Route path="settings"   element={<SettingsPage />} />
           <Route path="help"       element={<HelpPage />} />
-          <Route path="*"          element={<Navigate to="/app" replace />} />
+          <Route path="*"          element={<Navigate to={basePath} replace />} />
         </Routes>
       </DashboardShell>
     );
@@ -144,7 +155,7 @@ export function AppDashboard() {
       <GenerationProvider>
         <Routes>
           <Route path="contents/:id/edit" element={<AppContentEditor />} />
-          <Route path="*" element={<Navigate to="/app" replace />} />
+          <Route path="*" element={<Navigate to={basePath} replace />} />
         </Routes>
       </GenerationProvider>
     );
@@ -152,7 +163,7 @@ export function AppDashboard() {
 
   return (
     <GenerationProvider>
-    <DashboardShell loginPath="/app/login" portalLabel="CEO CONTENT OS" navItems={FC_NAV} flatContent={isFullPageContent}>
+    <DashboardShell loginPath={loginPath} portalLabel="CEO CONTENT OS" navItems={fcNav} flatContent={isFullPageContent}>
       <Routes>
         <Route index element={<AppOverview />} />
         <Route path="profile"          element={<AppProfile />} />
@@ -171,7 +182,7 @@ export function AppDashboard() {
         <Route path="contents/:id"       element={<AppContentDetail />} />
         <Route path="settings"         element={<AppSettings />} />
         <Route path="help"             element={<HelpPage />} />
-        <Route path="*"                element={<Navigate to="/app" replace />} />
+        <Route path="*"                element={<Navigate to={basePath} replace />} />
       </Routes>
     </DashboardShell>
     </GenerationProvider>

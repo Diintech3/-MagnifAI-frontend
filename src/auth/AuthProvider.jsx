@@ -6,14 +6,13 @@ import { clearToken, getRoleFromPath, getToken, saveToken } from "../lib/tokenSt
 const AuthContext = createContext(null);
 
 async function fetchMe(role, token) {
-  if (role === "APP") return api("/api/auth/app/me", { token });
-  if (role === "CANDIDATE") return api("/api/auth/candidate/me", { token });
   return api("/api/auth/me", { token });
 }
 
 function loginEndpoint(role) {
   if (role === "APP") return "/api/auth/app/login";
   if (role === "CANDIDATE") return "/api/auth/candidate/login";
+  if (role === "CEO") return "/api/auth/ceo/login";
   return "/api/auth/login";
 }
 

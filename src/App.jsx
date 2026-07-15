@@ -10,6 +10,7 @@ import { AppDashboard } from "./pages/AppDashboard";
 import { CandidateDashboard } from "./pages/CandidateDashboard";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { getToken } from "./lib/tokenStorage";
+import { CEOLoginPage } from "./pages/CEOLoginPage";
 
 function RoleRoute({ allow, loginPath, children }) {
   const { status, user } = useAuth();
@@ -26,7 +27,11 @@ function GuestLoginRoute({ loginPath, allowedRoles, children }) {
     if (allowedRoles.includes(user.role)) {
       if (user.role === "SUPERADMIN") return <Navigate to="/superadmin" replace />;
       if (user.role === "CANDIDATE") return <Navigate to="/candidate" replace />;
-      if (user.role === "APP") return <Navigate to="/app" replace />;
+      if (user.role === "CEO") return <Navigate to="/ceo" replace />;
+      if (user.role === "APP") {
+        if (user.isCEO) return <Navigate to="/ceo" replace />;
+        return <Navigate to="/app" replace />;
+      }
       return <Navigate to="/admin" replace />;
     }
     return <Navigate to={loginPath} replace />;
@@ -40,7 +45,11 @@ function HomeRedirect() {
   if (status === "authed" && user) {
     if (user.role === "SUPERADMIN") return <Navigate to="/superadmin" replace />;
     if (user.role === "CANDIDATE") return <Navigate to="/candidate" replace />;
-    if (user.role === "APP") return <Navigate to="/app" replace />;
+    if (user.role === "CEO") return <Navigate to="/ceo" replace />;
+    if (user.role === "APP") {
+      if (user.isCEO) return <Navigate to="/ceo" replace />;
+      return <Navigate to="/app" replace />;
+    }
     return <Navigate to="/admin" replace />;
   }
   if (getToken("SUPERADMIN")) return <Navigate to="/superadmin" replace />;
@@ -96,6 +105,14 @@ function AppRoutes() {
           </GuestLoginRoute>
         }
       />
+      <Route
+        path="/ceo/login"
+        element={
+          <GuestLoginRoute loginPath="/ceo/login" allowedRoles={["CEO"]}>
+            <CEOLoginPage />
+          </GuestLoginRoute>
+        }
+      />
       <Route path="/login" element={<Navigate to="/superadmin/login" replace />} />
       <Route
         path="/superadmin/*"
@@ -117,6 +134,14 @@ function AppRoutes() {
         path="/app/*"
         element={
           <RoleRoute allow={["APP"]} loginPath="/app/login">
+            <AppDashboard />
+          </RoleRoute>
+        }
+      />
+      <Route
+        path="/ceo/*"
+        element={
+          <RoleRoute allow={["CEO"]} loginPath="/ceo/login">
             <AppDashboard />
           </RoleRoute>
         }

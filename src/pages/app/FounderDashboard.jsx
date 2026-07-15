@@ -140,7 +140,7 @@ export function FounderDashboard() {
     setLoginLoadingId(c.id);
     try {
       const data = await api(`/api/app/ceos/${c.id}/login-as`, { method: "POST", token });
-      const url = new URL("/app", window.location.origin);
+      const url = new URL("/ceo", window.location.origin);
       url.searchParams.set("session", data.accessToken);
       window.open(url.toString(), "_blank", "noopener,noreferrer");
       toastSuccess("CEO dashboard opened in new tab");

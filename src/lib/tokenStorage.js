@@ -8,6 +8,7 @@ export const TOKEN_KEYS = {
 export function getRoleFromPath(pathname) {
   if (pathname.startsWith("/candidate")) return "CANDIDATE";
   if (pathname.startsWith("/app")) return "APP";
+  if (pathname.startsWith("/ceo")) return "CEO";
   if (pathname.startsWith("/superadmin")) return "SUPERADMIN";
   if (pathname.startsWith("/admin")) return "ADMIN";
   return null;
@@ -16,7 +17,7 @@ export function getRoleFromPath(pathname) {
 export function getTokenKeyForRole(role) {
   if (role === "SUPERADMIN") return TOKEN_KEYS.SUPERADMIN;
   if (role === "ADMIN") return TOKEN_KEYS.ADMIN;
-  if (role === "APP") return TOKEN_KEYS.APP;
+  if (role === "APP" || role === "CEO") return TOKEN_KEYS.APP;
   if (role === "CANDIDATE") return TOKEN_KEYS.CANDIDATE;
   return null;
 }
