@@ -24,21 +24,19 @@ import { SpiritualDashboard } from "./app/SpiritualDashboard";
 import { ChangeMakerDashboard } from "./app/ChangeMakerDashboard";
 import { FounderDashboard } from "./app/FounderDashboard";
 import { useAuth } from "../auth/AuthProvider";
+import { AppTools } from "./app/AppTools";
+import { AppPersonalityComingSoon } from "./app/AppPersonalityComingSoon";
+import { AppPersonalAIComingSoon } from "./app/AppPersonalAIComingSoon";
+import { AppScriptsApproval } from "./app/AppScriptsApproval";
 
 // ── Nav configs ────────────────────────────────────────────────────────────────
 
 const FC_NAV = [
-  { to: "/app",               label: "Dashboard",    headerTitle: "Dashboard",            end: true, icon: "overview" },
-  { to: "/app/profile",       label: "Profile",      headerTitle: "Profile",              icon: "profile" },
-  { to: "/app/content-tools", label: "Content Tools",headerTitle: "CEO Content OS",       icon: "aiGenerator" },
-  { to: "/app/distribution",  label: "Distribution", headerTitle: "Distribution Queue",   icon: "queue" },
-  { to: "/app/calendar",      label: "Calendar",     headerTitle: "Content Calendar",     icon: "calendar" },
+  { to: "/app",               label: "Overview",     headerTitle: "Overview",             end: true, icon: "overview" },
+  { to: "/app/personality",   label: "Personality",  headerTitle: "Personality Profile",   icon: "candidates" },
+  { to: "/app/personal-ai",   label: "Personal AI",  headerTitle: "Personal AI Copilot",   icon: "aiGenerator" },
   { to: "/app/popularity",    label: "Popularity",   headerTitle: "CEO Popularity Index", icon: "popularity" },
-  { to: "/app/campaign",      label: "Campaigns",    headerTitle: "Campaigns",            icon: "campaign" },
-  { to: "/app/social",        label: "Social Media", headerTitle: "Social Media",         icon: "social" },
-  { to: "/app/news",          label: "News",         headerTitle: "News",                 icon: "news" },
-  { to: "/app/digital-mentions", label: "AI Mentions", headerTitle: "Digital Mentions",   icon: "digitalMentions" },
-  { to: "/app/contents",         label: "Contents",   headerTitle: "Contents",            icon: "queue" },
+  { to: "/app/tools",         label: "Tools",        headerTitle: "Tools Hub",            icon: "matrix" },
 ];
 
 const MANAGER_NAV = [
@@ -61,6 +59,7 @@ const CHANGEMAKER_NAV = [
 const FOUNDER_NAV = [
   { to: "/app",          label: "Overview",       headerTitle: "Overview",                end: true, icon: "overview" },
   { to: "/app/ceos",     label: "CEOs / Founders", headerTitle: "CEO & Founder Management", icon: "candidates" },
+  { to: "/app/ugc-prompter", label: "UGC Prompter", headerTitle: "UGC Prompter",           icon: "ads" },
 ];
 
 // ── Dashboard selector ─────────────────────────────────────────────────────────
@@ -93,6 +92,7 @@ export function AppDashboard() {
         <Routes>
           <Route index    element={<AppOverview />} />
           <Route path="ceos"     element={<FounderDashboard />} />
+          <Route path="ugc-prompter" element={<AppScriptsApproval />} />
           <Route path="settings" element={<AppSettings />} />
           <Route path="help"     element={<HelpPage />} />
           <Route path="*"        element={<Navigate to={basePath} replace />} />
@@ -181,6 +181,10 @@ export function AppDashboard() {
         <Route path="contents/:id/edit"  element={<AppContentEditor />} />
         <Route path="contents/:id"       element={<AppContentDetail />} />
         <Route path="settings"         element={<AppSettings />} />
+        <Route path="tools"            element={<AppTools />} />
+        <Route path="ugc-prompter"     element={<AppScriptsApproval />} />
+        <Route path="personality"      element={<AppPersonalityComingSoon />} />
+        <Route path="personal-ai"      element={<AppPersonalAIComingSoon />} />
         <Route path="help"             element={<HelpPage />} />
         <Route path="*"                element={<Navigate to={basePath} replace />} />
       </Routes>

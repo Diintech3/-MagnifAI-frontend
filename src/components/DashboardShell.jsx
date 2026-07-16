@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { toastSuccess } from "../lib/toast";
+import { LuUser } from "react-icons/lu";
 import { IconChevronDown, IconHelp, IconMenu, IconSettings } from "./icons";
 import { SidebarNav } from "./SidebarNav";
 
@@ -118,16 +119,16 @@ export function DashboardShell({ portalLabel, loginPath, navItems, children, fla
             {sidebarExpanded ? <span>Settings</span> : null}
           </NavLink>
           <NavLink
-            to={`${loginPath.replace("/login", "/help")}`}
-            title={!sidebarExpanded ? "Help" : undefined}
+            to={`${loginPath.replace("/login", "/profile")}`}
+            title={!sidebarExpanded ? "Profile" : undefined}
             className={({ isActive }) => cn(
               "flex w-full items-center rounded-lg text-sm transition hover:bg-slate-800/80 hover:text-white",
               sidebarExpanded ? "gap-2.5 px-2.5 py-1.5" : "justify-center py-2.5",
               isActive ? "bg-slate-800 text-white" : "text-slate-400",
             )}
           >
-            <IconHelp className="h-5 w-5 shrink-0" />
-            {sidebarExpanded ? <span>Help</span> : null}
+            <LuUser className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+            {sidebarExpanded ? <span>Profile</span> : null}
           </NavLink>
         </div>
       </aside>
