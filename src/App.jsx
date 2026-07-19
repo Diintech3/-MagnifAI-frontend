@@ -11,6 +11,7 @@ import { CandidateDashboard } from "./pages/CandidateDashboard";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { getToken } from "./lib/tokenStorage";
 import { CEOLoginPage } from "./pages/CEOLoginPage";
+import { PublicAgentChat } from "./pages/PublicAgentChat";
 
 function RoleRoute({ allow, loginPath, children }) {
   const { status, user } = useAuth();
@@ -154,6 +155,7 @@ function AppRoutes() {
           </RoleRoute>
         }
       />
+      <Route path="/agent-chat" element={<PublicAgentChat />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );

@@ -1,7 +1,8 @@
 import { Link, useLocation } from "react-router-dom";
-import { LuSparkles, LuSend, LuCalendar, LuTarget, LuShare2, LuNewspaper, LuRadio, LuFileText, LuBox } from "react-icons/lu";
+import { useAuth } from "../../auth/AuthProvider";
+import { LuSparkles, LuSend, LuCalendar, LuTarget, LuShare2, LuNewspaper, LuRadio, LuFileText, LuBox, LuFolder } from "react-icons/lu";
 
-const TOOLS = [
+const CEO_TOOLS = [
   { to: "/content-tools", label: "Content Tools",     desc: "AI-powered content generation",     Icon: LuSparkles,  color: "from-violet-500 to-purple-600" },
   { to: "/distribution",  label: "Distribution",      desc: "Schedule & distribute content",      Icon: LuSend,      color: "from-blue-500 to-indigo-600" },
   { to: "/calendar",      label: "Calendar",          desc: "Content calendar & planning",        Icon: LuCalendar,  color: "from-pink-500 to-violet-500" },
@@ -12,9 +13,17 @@ const TOOLS = [
   { to: "/contents",      label: "Contents",          desc: "All created contents",              Icon: LuFileText,  color: "from-amber-500 to-orange-600" },
 ];
 
+const FOUNDER_TOOLS = [
+  { to: "/category-management", label: "Category Management", desc: "Manage content & prompter categories", Icon: LuFolder, color: "from-orange-500 to-amber-600" }
+];
+
 export function AppTools() {
+  const { user } = useAuth();
   const location = useLocation();
   const basePath = location.pathname.startsWith("/ceo") ? "/ceo" : "/app";
+
+  const isFounder = user?.dashboardType === "founder";
+  const tools = isFounder ? FOUNDER_TOOLS : CEO_TOOLS;
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
@@ -29,7 +38,7 @@ export function AppTools() {
       </div>
 
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-        {TOOLS.map(({ to, label, desc, Icon, color }) => (
+        {tools.map(({ to, label, desc, Icon, color }) => (
           <Link key={to} to={`${basePath}${to}`}
             className="group flex items-center gap-4 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm hover:shadow-md hover:border-slate-200 transition-all">
             <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${color} text-white shadow group-hover:scale-105 transition-transform`}>

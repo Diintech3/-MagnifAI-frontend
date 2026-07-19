@@ -2,26 +2,21 @@ import { useEffect, useState, useRef } from "react";
 import { useAuth } from "../../auth/AuthProvider";
 import { api, apiForm, mediaUrl } from "../../lib/api";
 import { toastFromError, toastSuccess } from "../../lib/toast";
-import { LuUser, LuPlus, LuEye, LuX, LuPlay, LuPause, LuRotateCcw, LuImage, LuClock, LuCalendar, LuCircleHelp, LuHeading, LuSparkles, LuPencil, LuTrash2 } from "react-icons/lu";
+import { LuUser, LuPlus, LuEye, LuX, LuPlay, LuPause, LuRotateCcw, LuImage, LuClock, LuCalendar, LuCircleHelp, LuHeading, LuSparkles, LuPencil, LuTrash2, LuArrowLeft } from "react-icons/lu";
 
-const CATEGORIES = [
-  "Spiritual",
-  "Health",
-  "Education",
-  "Business",
-  "Government",
-  "Agriculture",
-  "Social",
-  "Festivals",
-  "Motivation",
-  "Real Estate"
-];
+
 
 export function AppPersonalityComingSoon() {
   const { token, user } = useAuth();
   const [scripts, setScripts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewScript, setViewScript] = useState(null);
+  const [activeTab, setActiveTab] = useState("All");
+  const [workspaceTab, setWorkspaceTab] = useState("Script Text");
+
+  useEffect(() => {
+    setWorkspaceTab("Script Text");
+  }, [viewScript]);
   
   // Teleprompter Modal State
   const [teleprompterScript, setTeleprompterScript] = useState(null);
@@ -37,7 +32,27 @@ export function AppPersonalityComingSoon() {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState(CATEGORIES[0]);
+  const [dynamicCategories, setDynamicCategories] = useState([]);
+  const [category, setCategory] = useState("");
+
+  useEffect(() => {
+    api("/api/categories?section=ugc_prompter", { token })
+      .then(data => {
+        const catNames = (data && data.length > 0)
+          ? data.map(c => c.name)
+          : ["Spiritual", "Health", "Education", "Business", "Government", "Agriculture", "Social", "Festivals", "Motivation", "Real Estate"];
+        setDynamicCategories(catNames);
+        if (catNames.length > 0) {
+          setCategory(catNames[0]);
+        }
+      })
+      .catch(e => {
+        console.error("Error loading categories:", e);
+        const fallback = ["Spiritual", "Health", "Education", "Business", "Government", "Agriculture", "Social", "Festivals", "Motivation", "Real Estate"];
+        setDynamicCategories(fallback);
+        setCategory(fallback[0]);
+      });
+  }, [token]);
   const [duration, setDuration] = useState("45s");
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
@@ -270,7 +285,7 @@ export function AppPersonalityComingSoon() {
     setTitle("");
     setBody("");
     setDescription("");
-    setCategory(CATEGORIES[0]);
+    setCategory(dynamicCategories[0] || "");
     setDuration("45s");
     setScheduledAt(getLocalDateTimeString(new Date()));
     setImageFile(null);
@@ -341,6 +356,363 @@ export function AppPersonalityComingSoon() {
     }
   }
 
+  const renderWorkflowProgress = (s) => {
+    const isAdmin = s.createdByAdmin;
+    
+    let steps = [];
+    let currentStepIndex = 0;
+    
+    if (isAdmin) {
+      steps = ["Assigned", "Accepted", "Uploaded", "AI Edit", "Review"];
+      if (s.approvalStatus === "Pending" || s.approvalStatus === "Waiting") {
+        currentStepIndex = 0;
+      } else if (s.approvalStatus === "Submitted" && !s.rawVideoUrl) {
+        currentStepIndex = 1;
+      } else if (s.approvalStatus === "Submitted" && s.rawVideoUrl) {
+        currentStepIndex = 2;
+      } else if (s.approvalStatus === "Editing") {
+        currentStepIndex = 3;
+      } else if (["Edited", "Objection", "Approved", "Rejected"].includes(s.approvalStatus)) {
+        currentStepIndex = 4;
+      }
+    } else {
+      steps = ["Draft", "Uploaded", "AI Edit", "Approved"];
+      if (s.approvalStatus === "Draft") {
+        currentStepIndex = 0;
+      } else if (s.rawVideoUrl && s.approvalStatus !== "Editing" && s.approvalStatus !== "Approved") {
+        currentStepIndex = 1;
+      } else if (s.approvalStatus === "Editing") {
+        currentStepIndex = 2;
+      } else if (s.approvalStatus === "Approved") {
+        currentStepIndex = 3;
+      }
+    }
+
+    return (
+      <div className="mb-4 mt-2">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Workflow Step</span>
+          <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+            {currentStepIndex + 1}/{steps.length}: {steps[currentStepIndex]}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {steps.map((step, idx) => {
+            const isCompleted = idx < currentStepIndex;
+            const isCurrent = idx === currentStepIndex;
+            return (
+              <div key={step} className="flex-1" title={`${step} (${idx < currentStepIndex ? "Completed" : idx === currentStepIndex ? "Current" : "Pending"})`}>
+                <div 
+                  className={`h-1.5 rounded-full transition-all duration-350 ${
+                    isCompleted ? "bg-green-500 shadow-xs" :
+                    isCurrent ? "bg-indigo-600 animate-pulse ring-2 ring-indigo-200" :
+                    "bg-slate-200"
+                  }`}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const getWorkflowHelperText = (s) => {
+    if (s.processingStatus === "failed") {
+      return "❌ Last AI Video Edit attempt failed. Please click 'AI Edit' below to retry.";
+    }
+    const isAdmin = s.createdByAdmin;
+    if (isAdmin) {
+      if (s.approvalStatus === "Pending" || s.approvalStatus === "Waiting") {
+        return "👉 Action Required: Accept this assigned script template to begin.";
+      }
+      if (s.approvalStatus === "Submitted" && !s.rawVideoUrl) {
+        return "👉 Next Step: Record your speech and upload the raw video.";
+      }
+      if (s.approvalStatus === "Submitted" && s.rawVideoUrl) {
+        return "👉 Next Step: Click 'AI Edit' to start processing, or 'Approve' to send it raw.";
+      }
+      if (s.approvalStatus === "Editing") {
+        return "⚡ AI Video Editing is processing in the background. Please wait...";
+      }
+      if (s.approvalStatus === "Edited") {
+        return "🎉 AI Edited video is ready! Play it above and click 'Accept' or request a change.";
+      }
+      if (s.approvalStatus === "Approved") {
+        return "✅ Video Approved & Published successfully!";
+      }
+      if (s.approvalStatus === "Objection") {
+        return "⚠️ Objection note received. Please re-upload or adjust video.";
+      }
+    } else {
+      if (s.approvalStatus === "Draft" && !s.rawVideoUrl) {
+        return "👉 Next Step: Click 'Start' to read on teleprompter, then upload video.";
+      }
+      if (s.rawVideoUrl && s.approvalStatus !== "Editing" && s.approvalStatus !== "Approved") {
+        return "👉 Next Step: Click 'AI Edit' to auto-generate captions and music.";
+      }
+      if (s.approvalStatus === "Editing") {
+        return "⚡ AI Video Editing is processing in the background. Please wait...";
+      }
+      if (s.approvalStatus === "Approved") {
+        return "✅ Script Video completed and approved!";
+      }
+    }
+    return "";
+  };
+
+  if (viewScript) {
+    return (
+      <div className="p-4 sm:p-6 space-y-6">
+        {/* Workspace Header */}
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-5">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setViewScript(null)}
+              className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3.5 py-2 text-sm font-bold text-slate-600 shadow-xs cursor-pointer transition"
+            >
+              <LuArrowLeft className="h-4 w-4" /> Back to Scripts
+            </button>
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 font-sans">{viewScript.title}</h2>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="inline-flex rounded-full bg-orange-50 px-2.5 py-0.5 text-[10px] font-bold text-orange-700">
+                  {viewScript.category}
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">{viewScript.duration}</span>
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold border ${
+                  viewScript.approvalStatus === "Approved" ? "bg-green-50 text-green-700 border-green-200" :
+                  viewScript.approvalStatus === "Rejected" ? "bg-red-50 text-red-700 border-red-200" :
+                  viewScript.approvalStatus === "Pending" || viewScript.approvalStatus === "Waiting" || viewScript.approvalStatus === "Draft" ? "bg-amber-50 text-amber-700 border-amber-200" :
+                  viewScript.approvalStatus === "Submitted" ? "bg-blue-50 text-blue-700 border-blue-200" :
+                  viewScript.approvalStatus === "Editing" ? "bg-purple-50 text-purple-700 border-purple-200 animate-pulse" :
+                  viewScript.approvalStatus === "Edited" ? "bg-teal-50 text-teal-700 border-teal-200" :
+                  viewScript.approvalStatus === "Objection" ? "bg-orange-50 text-orange-700 border-orange-200" :
+                  "bg-slate-50 text-slate-600 border-slate-200"
+                }`}>
+                  Status: {viewScript.approvalStatus}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Unified Workspace Card Frame */}
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 flex flex-col space-y-6">
+          {/* Workspace Tabs */}
+          <div className="flex flex-wrap gap-2 border-b border-slate-100 pb-4">
+            <button
+              onClick={() => setWorkspaceTab("Script Text")}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+                workspaceTab === "Script Text"
+                  ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow"
+                  : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              Script Text
+            </button>
+            <button
+              onClick={() => setWorkspaceTab("Raw Video")}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+                workspaceTab === "Raw Video"
+                  ? "bg-gradient-to-r from-orange-500 to-amber-650 text-white shadow"
+                  : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              Raw Video
+            </button>
+            <button
+              onClick={() => setWorkspaceTab("AI Edited Video")}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+                workspaceTab === "AI Edited Video"
+                  ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow"
+                  : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              AI Edited Video
+            </button>
+          </div>
+
+          {/* Workspace Tab Content */}
+          <div className="flex-1">
+            {workspaceTab === "Script Text" && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Left side info (1/3 column) */}
+                <div className="lg:col-span-1 space-y-5">
+                  {viewScript.imageUrl && (
+                    <div>
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Storyboard Reference</span>
+                      <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-50 shadow-xs">
+                        <img src={mediaUrl(viewScript.imageUrl)} alt="Reference" className="w-full object-cover max-h-56" />
+                      </div>
+                    </div>
+                  )}
+                  {viewScript.description && (
+                    <div>
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Context / Description</span>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-xs leading-relaxed text-slate-650 whitespace-pre-wrap font-sans">
+                        {viewScript.description}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right side script content (2/3 column) */}
+                <div className="lg:col-span-2 flex flex-col">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Script Text Content</span>
+                  <div className="flex-1 rounded-xl border border-slate-200 bg-slate-50/30 p-5 text-sm leading-relaxed text-slate-800 whitespace-pre-wrap font-sans min-h-[300px]">
+                    {viewScript.body}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {workspaceTab === "Raw Video" && (
+              <div className="space-y-6">
+                {/* Guided actions for teleprompter start/upload */}
+                {(viewScript.approvalStatus === "Draft" || viewScript.approvalStatus === "Objection" || (viewScript.approvalStatus === "Submitted" && !viewScript.rawVideoUrl)) && (
+                  <div className="bg-orange-50/50 p-4 rounded-xl border border-orange-100/70 flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <span className="block text-xs font-bold text-orange-950">Record Video on Teleprompter</span>
+                      <span className="block text-[10px] text-orange-600 mt-0.5">Read script while recording, or upload pre-recorded video.</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => startTeleprompter(viewScript)}
+                        className="flex items-center gap-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white px-3.5 py-2 text-xs font-bold transition shadow-xs cursor-pointer"
+                      >
+                        <LuPlay className="h-3.5 w-3.5" /> Start Recording
+                      </button>
+                      <label className="flex items-center gap-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-3.5 py-2 text-xs font-bold transition cursor-pointer shadow-xs">
+                        Upload Video File
+                        <input
+                          type="file"
+                          accept="video/*"
+                          onChange={(e) => { handleVideoUpload(viewScript.scriptId, e); setViewScript(null); }}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                {/* Raw Video display */}
+                <div className="flex flex-col items-center">
+                  {viewScript.rawVideoUrl ? (
+                    <div className="rounded-xl overflow-hidden bg-black aspect-video w-full max-w-xl border border-slate-200 shadow-sm">
+                      <video src={mediaUrl(viewScript.rawVideoUrl)} controls className="w-full h-full object-contain" />
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-400 italic py-16 text-center border border-dashed border-slate-200 rounded-xl w-full">
+                      No raw video has been uploaded yet for this script.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {workspaceTab === "AI Edited Video" && (
+              <div className="space-y-6">
+                {/* Guided actions for AI editing or approval */}
+                {viewScript.approvalStatus === "Submitted" && viewScript.rawVideoUrl && (
+                  <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <span className="block text-xs font-bold text-indigo-900">Request AI Video Editing</span>
+                      <span className="block text-[10px] text-indigo-605 mt-0.5">Let AI edit captions, colors, and background music automatically.</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        disabled={updatingId === viewScript.scriptId}
+                        onClick={() => { updateScriptStatus(viewScript.scriptId, "Editing"); setViewScript(null); }}
+                        className="flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 text-xs font-bold transition shadow cursor-pointer"
+                      >
+                        <LuSparkles className="h-3.5 w-3.5" /> AI Edit Video
+                      </button>
+                      <button
+                        disabled={updatingId === viewScript.scriptId}
+                        onClick={() => { updateScriptStatus(viewScript.scriptId, "Approved"); setViewScript(null); }}
+                        className="rounded-lg bg-green-600 hover:bg-green-700 text-white px-3.5 py-2 text-xs font-bold transition shadow cursor-pointer"
+                      >
+                        Direct Approve
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {viewScript.approvalStatus === "Editing" && (
+                  <div className="bg-purple-50 border border-purple-100 text-purple-750 rounded-xl p-4 text-center text-xs font-bold flex items-center justify-center gap-2.5 animate-pulse">
+                    <div className="w-4.5 h-4.5 border-2 border-purple-755 border-t-transparent rounded-full animate-spin"></div>
+                    AI Video Editing is processing in the background ({viewScript.processingProgress || 0}%)
+                  </div>
+                )}
+
+                {viewScript.approvalStatus === "Edited" && (
+                  <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <span className="block text-xs font-bold text-indigo-900">Review and Accept AI Video</span>
+                      <span className="block text-[10px] text-indigo-605 mt-0.5">Verify if the AI edited video is correct and accept/approve it.</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        disabled={updatingId === viewScript.scriptId}
+                        onClick={() => { updateScriptStatus(viewScript.scriptId, "Approved"); setViewScript(null); }}
+                        className="rounded-lg bg-green-600 hover:bg-green-700 px-3.5 py-2 text-xs font-bold text-white transition shadow cursor-pointer"
+                      >
+                        Accept Video
+                      </button>
+                      <button
+                        disabled={updatingId === viewScript.scriptId}
+                        onClick={() => { setObjectionScript(viewScript); setViewScript(null); }}
+                        className="rounded-lg bg-orange-500 hover:bg-orange-600 px-3.5 py-2 text-xs font-bold text-white transition shadow cursor-pointer"
+                      >
+                        Objection
+                      </button>
+                      <button
+                        disabled={updatingId === viewScript.scriptId}
+                        onClick={() => { updateScriptStatus(viewScript.scriptId, "Rejected"); setViewScript(null); }}
+                        className="rounded-lg bg-red-600 hover:bg-red-700 px-3.5 py-2 text-xs font-bold text-white transition shadow cursor-pointer"
+                      >
+                        Reject Video
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Video Player Display */}
+                <div className="flex flex-col">
+                  {(viewScript.processedVideoUrl || viewScript.viralVideoUrl) ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 justify-center">
+                      {viewScript.processedVideoUrl && (
+                        <div className="flex flex-col items-center">
+                          <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">AI Edited Video</span>
+                          <div className="rounded-xl overflow-hidden bg-black aspect-video w-full border border-slate-200 shadow-sm">
+                            <video src={mediaUrl(viewScript.processedVideoUrl)} controls className="w-full h-full object-contain" />
+                          </div>
+                        </div>
+                      )}
+                      {viewScript.viralVideoUrl && (
+                        <div className="flex flex-col items-center">
+                          <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">AI Viral-Optimized Video</span>
+                          <div className="rounded-xl overflow-hidden bg-black aspect-video w-full border border-slate-200 shadow-sm">
+                            <video src={mediaUrl(viewScript.viralVideoUrl)} controls className="w-full h-full object-contain" />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-400 italic py-16 text-center border border-dashed border-slate-200 rounded-xl w-full">
+                      No edited videos generated yet by AI.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 sm:p-6 space-y-6">
       {/* Header */}
@@ -363,358 +735,145 @@ export function AppPersonalityComingSoon() {
         </button>
       </div>
 
+      {/* Tabs */}
+      {!loading && scripts.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-2">
+          <button
+            onClick={() => setActiveTab("All")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+              activeTab === "All"
+                ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow"
+                : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            All ({scripts.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("My Scripts")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+              activeTab === "My Scripts"
+                ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow"
+                : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            My Scripts ({scripts.filter(s => !s.createdByAdmin).length})
+          </button>
+          <button
+            onClick={() => setActiveTab("Assigned Scripts")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+              activeTab === "Assigned Scripts"
+                ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow"
+                : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            Assigned Scripts ({scripts.filter(s => s.createdByAdmin).length})
+          </button>
+        </div>
+      )}
+
       {/* Grid of scripts */}
       {loading ? (
         <div className="py-12 text-center text-slate-400 animate-pulse">Loading scripts…</div>
-      ) : scripts.length === 0 ? (
-        <div className="py-16 text-center max-w-sm mx-auto">
-          <LuCircleHelp className="h-10 w-10 text-slate-300 mx-auto mb-3" />
-          <h3 className="text-base font-bold text-slate-900">No scripts assigned yet</h3>
-          <p className="text-sm text-slate-500 mt-1">
-            Scripts assigned to you by the Founder or written by you will appear here.
-          </p>
-        </div>
-      ) : (
-        <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-          {scripts.map((s) => (
-            <div key={s.scriptId} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow">
-              {/* Script image preview */}
-              {s.imageUrl && (
-                <div className="mb-4 h-36 w-full rounded-xl overflow-hidden border border-slate-100 bg-slate-50">
-                  <img src={mediaUrl(s.imageUrl)} alt={s.title} className="w-full h-full object-cover" />
-                </div>
-              )}
-              
-              <div className="flex items-center gap-2 mb-2 shrink-0">
-                <span className="inline-flex rounded-full bg-orange-50 px-2.5 py-0.5 text-xs font-semibold text-orange-700">
-                  {s.category}
-                </span>
-                <span className="text-xs text-slate-400 font-mono">{s.duration}</span>
-              </div>
-              
-              <h3 className="text-base font-bold text-slate-900 line-clamp-1 mb-2" title={s.title}>
-                {s.title}
-              </h3>
-              
-              <p className="text-sm text-slate-500 line-clamp-3 mb-4 flex-1">
-                {s.body}
+      ) : (() => {
+        const filteredScripts = scripts.filter(s => {
+          if (activeTab === "My Scripts") return !s.createdByAdmin;
+          if (activeTab === "Assigned Scripts") return s.createdByAdmin;
+          return true;
+        });
+
+        if (filteredScripts.length === 0) {
+          return (
+            <div className="py-16 text-center max-w-sm mx-auto">
+              <LuCircleHelp className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+              <h3 className="text-base font-bold text-slate-900">No scripts found</h3>
+              <p className="text-sm text-slate-500 mt-1">
+                No scripts match the selected tab filter.
               </p>
-              
-              {s.approvalStatus === "Objection" && (
-                <div className="mb-3.5 rounded-xl bg-orange-50 border border-orange-200 p-2.5 text-xs text-orange-850">
-                  <span className="font-extrabold block uppercase tracking-wider text-[9px] mb-0.5 text-orange-600">Objection Reason:</span>
-                  {s.objectionNote || "Please re-upload video."}
-                </div>
-              )}
-
-              <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400">
-                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold border ${
-                  s.approvalStatus === "Approved" ? "bg-green-50 text-green-700 border-green-200" :
-                  s.approvalStatus === "Rejected" ? "bg-red-50 text-red-700 border-red-200" :
-                  s.approvalStatus === "Pending" || s.approvalStatus === "Waiting" || s.approvalStatus === "Draft" ? "bg-amber-50 text-amber-700 border-amber-200" :
-                  s.approvalStatus === "Submitted" ? "bg-blue-50 text-blue-700 border-blue-200" :
-                  s.approvalStatus === "Editing" ? "bg-purple-50 text-purple-700 border-purple-200 animate-pulse" :
-                  s.approvalStatus === "Edited" ? "bg-teal-50 text-teal-700 border-teal-200" :
-                  s.approvalStatus === "Objection" ? "bg-orange-50 text-orange-700 border-orange-200" :
-                  "bg-slate-50 text-slate-600 border-slate-200"
-                }`}>
-                  {s.approvalStatus === "Editing" ? `Editing (${s.processingProgress || 0}%)` : s.approvalStatus}
-                </span>
-                
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => setViewScript(s)}
-                    className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 transition-colors"
-                    title="View Details"
-                  >
-                    <LuEye className="h-4 w-4" />
-                  </button>
-
-                  {s.userId === user?.id && !s.createdByAdmin && (
-                    <>
-                      <button
-                        onClick={() => openEdit(s)}
-                        className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 transition-colors"
-                        title="Edit Script"
-                      >
-                        <LuPencil className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(s.scriptId)}
-                        className="rounded-lg border border-slate-200 p-1.5 text-red-500 hover:bg-red-50 transition-colors"
-                        title="Delete Script"
-                      >
-                        <LuTrash2 className="h-4 w-4" />
-                      </button>
-                    </>
-                  )}
-
-                  {/* Context-sensitive actions */}
-                  {(s.approvalStatus === "Pending" || s.approvalStatus === "Waiting") && (
-                    <button
-                      onClick={() => handleAcceptScript(s.scriptId)}
-                      className="rounded-lg bg-indigo-600 hover:bg-indigo-750 text-white px-3 py-1.5 text-xs font-bold transition shadow"
-                    >
-                      Accept
-                    </button>
-                  )}
-
-                  {(s.approvalStatus === "Draft" || s.approvalStatus === "Objection" || (s.approvalStatus === "Submitted" && !s.rawVideoUrl)) && (
-                    <label className="rounded-lg bg-indigo-600 hover:bg-indigo-750 text-white px-3 py-1.5 text-xs font-bold transition shadow cursor-pointer">
-                      Upload Video
-                      <input
-                        type="file"
-                        accept="video/*"
-                        onChange={(e) => handleVideoUpload(s.scriptId, e)}
-                        className="hidden"
-                      />
-                    </label>
-                  )}
-
-                  {(s.approvalStatus === "Submitted" && s.rawVideoUrl) && (
-                    <div className="flex gap-1.5">
-                      <button
-                        disabled={updatingId === s.scriptId}
-                        onClick={() => updateScriptStatus(s.scriptId, "Approved")}
-                        className="rounded-lg bg-green-600 hover:bg-green-700 text-white px-2.5 py-1.5 text-[11px] font-bold transition shadow"
-                        title="Approve Video Directly"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        disabled={updatingId === s.scriptId}
-                        onClick={() => updateScriptStatus(s.scriptId, "Editing")}
-                        className="rounded-lg bg-indigo-600 hover:bg-indigo-755 text-white px-2.5 py-1.5 text-[11px] font-bold transition shadow"
-                        title="Request AI Video Edit"
-                      >
-                        AI Edit
-                      </button>
-                    </div>
-                  )}
-
-                  {s.approvalStatus === "Edited" && (
-                    <div className="flex gap-1">
-                      <button
-                        disabled={updatingId === s.scriptId}
-                        onClick={() => updateScriptStatus(s.scriptId, "Approved")}
-                        className="rounded-lg bg-green-600 hover:bg-green-700 text-white px-2 py-1 text-[10px] font-bold transition shadow"
-                        title="Accept Video"
-                      >
-                        Accept
-                      </button>
-                      <button
-                        disabled={updatingId === s.scriptId}
-                        onClick={() => setObjectionScript(s)}
-                        className="rounded-lg bg-orange-500 hover:bg-orange-600 text-white px-2 py-1 text-[10px] font-bold transition shadow"
-                        title="Raise Objection"
-                      >
-                        Objection
-                      </button>
-                      <button
-                        disabled={updatingId === s.scriptId}
-                        onClick={() => updateScriptStatus(s.scriptId, "Rejected")}
-                        className="rounded-lg bg-red-600 hover:bg-red-700 text-white px-2 py-1 text-[10px] font-bold transition shadow"
-                        title="Reject Video"
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  )}
-
-                  {(s.approvalStatus !== "Pending" && s.approvalStatus !== "Waiting") && (
-                    <button
-                      onClick={() => startTeleprompter(s)}
-                      className="flex items-center gap-1 rounded-lg bg-orange-600 hover:bg-orange-700 text-white px-3 py-1.5 font-bold transition shadow"
-                    >
-                      <LuPlay className="h-3.5 w-3.5" /> Start
-                    </button>
-                  )}
-                </div>
-              </div>
             </div>
-          ))}
-        </div>
-      )}
+          );
+        }
 
-      {/* View Script Details Modal */}
-      {viewScript && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button type="button" className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setViewScript(null)} />
-          <div className="relative z-10 w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl border border-slate-200">
-            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
-              <h3 className="text-base font-bold text-slate-900">{viewScript.title}</h3>
-              <button type="button" onClick={() => setViewScript(null)} className="text-slate-400 hover:text-slate-600">
-                <LuX className="h-5 w-5" />
-              </button>
-            </div>
-            
-            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl text-sm">
-                <div>
-                  <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">Category</span>
-                  <span className="font-semibold text-slate-800">{viewScript.category}</span>
-                </div>
-                <div>
-                  <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">Duration</span>
-                  <span className="font-mono text-slate-800">{viewScript.duration}</span>
-                </div>
-                <div>
-                  <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">Scheduled Time</span>
-                  <span className="font-semibold text-slate-800">{viewScript.scheduledTime}</span>
-                </div>
-                <div>
-                  <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">Status</span>
-                  <span className="font-semibold text-slate-800">{viewScript.approvalStatus}</span>
-                </div>
-              </div>
-
-              {viewScript.imageUrl && (
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Storyboard Reference</label>
-                  <img src={mediaUrl(viewScript.imageUrl)} alt="Reference" className="w-full max-h-48 object-cover rounded-xl border border-slate-200" />
-                </div>
-              )}
-
-              {viewScript.description && (
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Context / Description</label>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed text-slate-700 whitespace-pre-wrap font-sans">
-                    {viewScript.description}
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Script Text</label>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-relaxed text-slate-800 whitespace-pre-wrap font-sans">
-                  {viewScript.body}
-                </div>
-              </div>
-
-              {viewScript.objectionNote && (
-                <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 text-xs text-orange-850">
-                  <span className="font-bold uppercase tracking-wider block mb-1">Objection Reason:</span>
-                  {viewScript.objectionNote}
-                </div>
-              )}
-
-              {(viewScript.rawVideoUrl || viewScript.processedVideoUrl) && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {viewScript.rawVideoUrl && (
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Raw Recorded Video</label>
-                      <div className="rounded-xl overflow-hidden border border-slate-200 bg-black aspect-video">
-                        <video src={mediaUrl(viewScript.rawVideoUrl)} controls className="w-full h-full object-contain" />
-                      </div>
-                    </div>
-                  )}
-                  {viewScript.processedVideoUrl && (
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">AI Processed Video</label>
-                      <div className="rounded-xl overflow-hidden border border-slate-200 bg-black aspect-video">
-                        <video src={mediaUrl(viewScript.processedVideoUrl)} controls className="w-full h-full object-contain" />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {viewScript.viralVideoUrl && (
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Viral-Optimized AI Video</label>
-                  <div className="rounded-xl overflow-hidden border border-slate-200 bg-black max-w-sm aspect-video mx-auto">
-                    <video src={mediaUrl(viewScript.viralVideoUrl)} controls className="w-full h-full object-contain" />
-                  </div>
-                </div>
-              )}
-            </div>            <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 mt-5">
-              {viewScript.approvalStatus === "Edited" && (
-                <>
-                  <button
-                    disabled={updatingId === viewScript.scriptId}
-                    onClick={() => { updateScriptStatus(viewScript.scriptId, "Approved"); setViewScript(null); }}
-                    className="rounded-lg bg-green-600 hover:bg-green-700 px-4 py-2 text-sm font-semibold text-white transition shadow"
-                  >
-                    Accept Video
-                  </button>
-                  <button
-                    disabled={updatingId === viewScript.scriptId}
-                    onClick={() => { setObjectionScript(viewScript); setViewScript(null); }}
-                    className="rounded-lg bg-orange-500 hover:bg-orange-600 px-4 py-2 text-sm font-semibold text-white transition shadow"
-                  >
-                    Objection
-                  </button>
-                  <button
-                    disabled={updatingId === viewScript.scriptId}
-                    onClick={() => { updateScriptStatus(viewScript.scriptId, "Rejected"); setViewScript(null); }}
-                    className="rounded-lg bg-red-600 hover:bg-red-700 px-4 py-2 text-sm font-semibold text-white transition shadow"
-                  >
-                    Reject Video
-                  </button>
-                </>
-              )}
-
-              {(viewScript.approvalStatus === "Pending" || viewScript.approvalStatus === "Waiting") && (
-                <button
-                  type="button"
-                  onClick={() => { handleAcceptScript(viewScript.scriptId); setViewScript(null); }}
-                  className="rounded-lg bg-indigo-600 hover:bg-indigo-750 px-4 py-2 text-sm font-semibold text-white transition shadow"
-                >
-                  Accept Script
-                </button>
-              )}
-
-              {(viewScript.approvalStatus === "Draft" || viewScript.approvalStatus === "Objection" || (viewScript.approvalStatus === "Submitted" && !viewScript.rawVideoUrl)) && (
-                <label className="rounded-lg bg-indigo-600 hover:bg-indigo-750 text-white px-4 py-2 text-sm font-semibold transition shadow cursor-pointer text-center flex items-center justify-center">
-                  Upload Video
-                  <input
-                    type="file"
-                    accept="video/*"
-                    onChange={(e) => { handleVideoUpload(viewScript.scriptId, e); setViewScript(null); }}
-                    className="hidden"
-                  />
-                </label>
-              )}
-
-              {(viewScript.approvalStatus === "Submitted" && viewScript.rawVideoUrl) && (
-                <>
-                  <button
-                    disabled={updatingId === viewScript.scriptId}
-                    onClick={() => { updateScriptStatus(viewScript.scriptId, "Approved"); setViewScript(null); }}
-                    className="rounded-lg bg-green-600 hover:bg-green-700 px-4 py-2 text-sm font-semibold text-white transition shadow"
-                  >
-                    Approve Video
-                  </button>
-                  <button
-                    disabled={updatingId === viewScript.scriptId}
-                    onClick={() => { updateScriptStatus(viewScript.scriptId, "Editing"); setViewScript(null); }}
-                    className="rounded-lg bg-indigo-600 hover:bg-indigo-755 px-4 py-2 text-sm font-semibold text-white transition shadow"
-                  >
-                    AI Edit
-                  </button>
-                </>
-              )}
-
-              {(viewScript.approvalStatus !== "Pending" && viewScript.approvalStatus !== "Waiting") && (
-                <button
-                  type="button"
-                  onClick={() => startTeleprompter(viewScript)}
-                  className="flex items-center gap-1 rounded-lg bg-orange-600 hover:bg-orange-700 px-4 py-2 text-sm font-semibold text-white transition shadow"
-                >
-                  <LuPlay className="h-4 w-4" /> Start Teleprompter
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setViewScript(null)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
+        return (
+          <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+            {filteredScripts.map((s) => (
+              <div 
+                key={s.scriptId} 
+                onClick={() => setViewScript(s)}
+                className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-all hover:scale-[1.01] cursor-pointer"
               >
-                Close
-              </button>
-            </div>
+                {/* Script image preview */}
+                {s.imageUrl && (
+                  <div className="mb-4 h-36 w-full rounded-xl overflow-hidden border border-slate-100 bg-slate-50">
+                    <img src={mediaUrl(s.imageUrl)} alt={s.title} className="w-full h-full object-cover" />
+                  </div>
+                )}
+                
+                <div className="flex items-center gap-2 mb-2 shrink-0">
+                  <span className="inline-flex rounded-full bg-orange-50 px-2.5 py-0.5 text-xs font-semibold text-orange-700">
+                    {s.category}
+                  </span>
+                  <span className="text-xs text-slate-400 font-mono">{s.duration}</span>
+                </div>
+                
+                <h3 className="text-base font-bold text-slate-900 line-clamp-1 mb-2" title={s.title}>
+                  {s.title}
+                </h3>
+                
+                <p className="text-xs text-slate-500 line-clamp-2 mb-4 flex-1">
+                  {s.body}
+                </p>
+
+                {/* Meta tags at the bottom */}
+                <div className="flex items-center justify-between mt-auto pt-3 border-t border-slate-100 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status</span>
+                    <span className={`inline-flex items-center text-[10px] font-bold mt-0.5 ${
+                      s.approvalStatus === "Approved" ? "text-green-600" :
+                      s.approvalStatus === "Rejected" ? "text-red-600" :
+                      s.approvalStatus === "Submitted" ? "text-blue-600" :
+                      s.approvalStatus === "Editing" ? "text-purple-600 animate-pulse" :
+                      s.approvalStatus === "Edited" ? "text-teal-600" :
+                      s.approvalStatus === "Objection" ? "text-orange-600 font-extrabold" :
+                      "text-amber-600"
+                    }`}>
+                      {s.approvalStatus === "Editing" ? `Editing (${s.processingProgress || 0}%)` : s.approvalStatus}
+                    </span>
+                  </div>
+
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => setViewScript(s)}
+                      className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+                      title="View details"
+                    >
+                      <LuEye className="h-4 w-4" />
+                    </button>
+                    {/* Delete button only if user created this script (not admin assigned) */}
+                    {s.userId === user?.id && !s.createdByAdmin && s.approvalStatus === "Draft" && (
+                      <>
+                        <button
+                          onClick={() => openEdit(s)}
+                          className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 transition cursor-pointer"
+                          title="Edit script"
+                        >
+                          <LuPencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(s.scriptId)}
+                          className="rounded-lg border border-slate-200 p-1.5 text-red-500 hover:bg-red-50 transition cursor-pointer"
+                          title="Delete script"
+                        >
+                          <LuTrash2 className="h-4 w-4" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Teleprompter Fullscreen Overlay */}
       {teleprompterScript && (
@@ -837,7 +996,7 @@ export function AppPersonalityComingSoon() {
                     onChange={(e) => setCategory(e.target.value)}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
                   >
-                    {CATEGORIES.map(cat => (
+                    {dynamicCategories.map(cat => (
                       <option key={cat} value={cat}>{cat}</option>
                     ))}
                   </select>

@@ -42,6 +42,7 @@ import {
   LuCreditCard,
   LuBuilding2,
   LuTarget,
+  LuBot,
 } from "react-icons/lu";
 import { RiAdminLine } from "react-icons/ri";
 
@@ -89,6 +90,7 @@ export const NAV_ICONS = {
   companies: wrap(LuBuilding2),
   campaign: wrap(LuTarget),
   globe: wrap(LuGlobe),
+  bot: wrap(LuBot),
 };
 
 export function getNavIcon(key) {

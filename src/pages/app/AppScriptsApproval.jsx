@@ -4,18 +4,7 @@ import { api, apiForm, mediaUrl } from "../../lib/api";
 import { toastFromError, toastSuccess } from "../../lib/toast";
 import { LuPlus, LuPencil, LuTrash2, LuEye, LuX, LuCheck, LuMegaphone, LuClock, LuCircleHelp, LuUsers, LuImage, LuSearch } from "react-icons/lu";
 
-const CATEGORIES = [
-  "Spiritual",
-  "Health",
-  "Education",
-  "Business",
-  "Government",
-  "Agriculture",
-  "Social",
-  "Festivals",
-  "Motivation",
-  "Real Estate"
-];
+
 
 export function AppScriptsApproval() {
   const { token } = useAuth();
@@ -27,8 +16,10 @@ export function AppScriptsApproval() {
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
   const [editScript, setEditScript] = useState(null);
+  const [selectedSubId, setSelectedSubId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
+  const [reviewSubmission, setReviewSubmission] = useState(null);
 
   // Assign Modal State
   const [assignScript, setAssignScript] = useState(null);
@@ -38,7 +29,27 @@ export function AppScriptsApproval() {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState(CATEGORIES[0]);
+  const [dynamicCategories, setDynamicCategories] = useState([]);
+  const [category, setCategory] = useState("");
+
+  useEffect(() => {
+    api("/api/categories?section=ugc_prompter", { token })
+      .then(data => {
+        const catNames = (data && data.length > 0)
+          ? data.map(c => c.name)
+          : ["Spiritual", "Health", "Education", "Business", "Government", "Agriculture", "Social", "Festivals", "Motivation", "Real Estate"];
+        setDynamicCategories(catNames);
+        if (catNames.length > 0) {
+          setCategory(catNames[0]);
+        }
+      })
+      .catch(e => {
+        console.error("Error loading categories:", e);
+        const fallback = ["Spiritual", "Health", "Education", "Business", "Government", "Agriculture", "Social", "Festivals", "Motivation", "Real Estate"];
+        setDynamicCategories(fallback);
+        setCategory(fallback[0]);
+      });
+  }, [token]);
   const [duration, setDuration] = useState("45s");
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
@@ -82,6 +93,10 @@ export function AppScriptsApproval() {
   useEffect(() => {
     loadData();
   }, [token]);
+
+  useEffect(() => {
+    setSelectedSubId(null);
+  }, [viewScript]);
 
   function openCreate() {
     setEditScript(null);
@@ -187,10 +202,21 @@ export function AppScriptsApproval() {
     }
     setGenerating(true);
     try {
-      const res = await api("/api/app/generate-script", {
+      const fd = new FormData();
+      fd.append("title", title.trim());
+      fd.append("category", category);
+      fd.append("duration", duration);
+      if (description) {
+        fd.append("description", description.trim());
+      }
+      if (imageFile) {
+        fd.append("image", imageFile);
+      }
+
+      const res = await apiForm("/api/app/generate-script", {
         method: "POST",
         token,
-        body: { title, category, duration, description: description.trim() || null }
+        formData: fd
       });
       if (res.success) {
         toastSuccess("Script template generated and saved successfully!");
@@ -268,10 +294,12 @@ export function AppScriptsApproval() {
     }
   }
 
-  async function onDelete(s) {
-    if (!window.confirm(`Delete script "${s.title}"?`)) return;
+  async function onDeleteGroup(group) {
+    if (!window.confirm(`Delete script template "${group.title}" and all its creator assignments?`)) return;
     try {
-      await api(`/api/app/scripts/${s.scriptId}`, { method: "DELETE", token });
+      await Promise.all(group.submissions.map(sub => 
+        api(`/api/app/scripts/${sub.scriptId}`, { method: "DELETE", token })
+      ));
       toastSuccess("Script deleted successfully");
       loadData();
     } catch (e) {
@@ -342,6 +370,92 @@ export function AppScriptsApproval() {
   } else if (sortBy === "Alphabetical (A-Z)") {
     filteredScripts.sort((a, b) => a.title.localeCompare(b.title));
   }
+
+  // Group filteredScripts by title
+  const groupedScripts = [];
+  const groupsMap = {};
+  filteredScripts.forEach(s => {
+    const key = s.title.toLowerCase().trim();
+    if (!groupsMap[key]) {
+      groupsMap[key] = {
+        title: s.title,
+        body: s.body,
+        category: s.category,
+        duration: s.duration,
+        scheduledDate: s.scheduledDate,
+        scheduledTime: s.scheduledTime,
+        imageUrl: s.imageUrl,
+        description: s.description,
+        createdByAdmin: s.createdByAdmin,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+        submissions: []
+      };
+      groupedScripts.push(groupsMap[key]);
+    }
+    groupsMap[key].submissions.push(s);
+  });
+
+  const renderWorkflowProgress = (s) => {
+    const isAdmin = s.createdByAdmin;
+    
+    let steps = [];
+    let currentStepIndex = 0;
+    
+    if (isAdmin) {
+      steps = ["Assigned", "Accepted", "Uploaded", "AI Edit", "Review"];
+      if (s.approvalStatus === "Pending" || s.approvalStatus === "Waiting") {
+        currentStepIndex = 0;
+      } else if (s.approvalStatus === "Submitted" && !s.rawVideoUrl) {
+        currentStepIndex = 1;
+      } else if (s.approvalStatus === "Submitted" && s.rawVideoUrl) {
+        currentStepIndex = 2;
+      } else if (s.approvalStatus === "Editing") {
+        currentStepIndex = 3;
+      } else if (["Edited", "Objection", "Approved", "Rejected"].includes(s.approvalStatus)) {
+        currentStepIndex = 4;
+      }
+    } else {
+      steps = ["Draft", "Uploaded", "AI Edit", "Approved"];
+      if (s.approvalStatus === "Draft") {
+        currentStepIndex = 0;
+      } else if (s.rawVideoUrl && s.approvalStatus !== "Editing" && s.approvalStatus !== "Approved") {
+        currentStepIndex = 1;
+      } else if (s.approvalStatus === "Editing") {
+        currentStepIndex = 2;
+      } else if (s.approvalStatus === "Approved") {
+        currentStepIndex = 3;
+      }
+    }
+
+    return (
+      <div className="mb-4 mt-2">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Workflow Step</span>
+          <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+            {currentStepIndex + 1}/{steps.length}: {steps[currentStepIndex]}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {steps.map((step, idx) => {
+            const isCompleted = idx < currentStepIndex;
+            const isCurrent = idx === currentStepIndex;
+            return (
+              <div key={step} className="flex-1" title={`${step} (${idx < currentStepIndex ? "Completed" : idx === currentStepIndex ? "Current" : "Pending"})`}>
+                <div 
+                  className={`h-1.5 rounded-full transition-all duration-350 ${
+                    isCompleted ? "bg-green-500 shadow-xs" :
+                    isCurrent ? "bg-indigo-600 animate-pulse ring-2 ring-indigo-200" :
+                    "bg-slate-200"
+                  }`}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
@@ -426,7 +540,7 @@ export function AppScriptsApproval() {
               className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white text-slate-800"
             >
               <option value="All">All Categories</option>
-              {CATEGORIES.map(cat => (
+              {dynamicCategories.map(cat => (
                 <option key={cat} value={cat}>{cat}</option>
               ))}
             </select>
@@ -474,7 +588,7 @@ export function AppScriptsApproval() {
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {loading ? (
           <div className="py-12 text-center text-slate-400 animate-pulse">Loading scripts…</div>
-        ) : filteredScripts.length === 0 ? (
+                ) : groupedScripts.length === 0 ? (
           <div className="py-16 text-center max-w-sm mx-auto">
             <LuCircleHelp className="h-10 w-10 text-slate-300 mx-auto mb-3" />
             <h3 className="text-base font-bold text-slate-900">No scripts found</h3>
@@ -497,145 +611,145 @@ export function AppScriptsApproval() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
-                {filteredScripts.map((s) => (
-                  <tr key={s.scriptId} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="px-4 py-4 font-semibold text-slate-900">
-                      <div className="flex items-center gap-3">
-                        {s.imageUrl ? (
-                          <img
-                            src={mediaUrl(s.imageUrl)}
-                            alt={s.title}
-                            className="h-9 w-9 rounded-lg object-cover border border-slate-100 shrink-0"
-                          />
-                        ) : (
-                          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-50 text-slate-400 border border-slate-100 shrink-0">
-                            <LuImage className="h-4 w-4" />
-                          </span>
-                        )}
-                        <span>{s.title}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4">
-                      {s.assignedCreators && s.assignedCreators.length > 0 ? (
-                        <div className="flex flex-wrap gap-1.5 max-w-[200px]">
-                          {s.assignedCreators.map(ac => (
-                            <span
-                              key={ac.creatorId}
-                              className="inline-flex flex-col rounded-lg bg-indigo-50 border border-indigo-100 px-2 py-1 text-xs"
-                            >
-                              <span className="font-semibold text-indigo-900 leading-tight">{ac.name}</span>
-                              <span className="text-[9px] font-bold text-indigo-400 uppercase tracking-wide">
-                                {ac.role}
-                              </span>
+                {groupedScripts.map((group) => {
+                  const allAssigned = [];
+                  const creatorIdsSeen = new Set();
+                  group.submissions.forEach(sub => {
+                    if (sub.assignedCreators) {
+                      sub.assignedCreators.forEach(ac => {
+                        if (!creatorIdsSeen.has(ac.creatorId)) {
+                          creatorIdsSeen.add(ac.creatorId);
+                          allAssigned.push(ac);
+                        }
+                      });
+                    }
+                  });
+
+                  return (
+                    <tr key={group.title} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="px-4 py-4 font-semibold text-slate-900">
+                        <div className="flex items-center gap-3">
+                          {group.imageUrl ? (
+                            <img
+                              src={mediaUrl(group.imageUrl)}
+                              alt={group.title}
+                              className="h-9 w-9 rounded-lg object-cover border border-slate-100 shrink-0"
+                            />
+                          ) : (
+                            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-50 text-slate-400 border border-slate-100 shrink-0">
+                              <LuImage className="h-4 w-4" />
                             </span>
-                          ))}
+                          )}
+                          <span>{group.title}</span>
                         </div>
-                      ) : (
-                        <span className="text-slate-400 italic">Unassigned</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-4">
-                      <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
-                        {s.category}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 font-mono text-xs">{s.duration}</td>
-                    <td className="px-4 py-4">
-                      <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                        <LuClock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                        {s.scheduledTime}
-                      </div>
-                    </td>
-                    <td className="px-4 py-4">
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-bold border ${
-                        s.approvalStatus === "Approved" ? "bg-green-50 text-green-700 border-green-200" :
-                        s.approvalStatus === "Rejected" ? "bg-red-50 text-red-700 border-red-200" :
-                        s.approvalStatus === "Pending" || s.approvalStatus === "Waiting" || s.approvalStatus === "Draft" ? "bg-amber-50 text-amber-700 border-amber-200" :
-                        s.approvalStatus === "Submitted" ? "bg-blue-50 text-blue-700 border-blue-200" :
-                        s.approvalStatus === "Editing" ? "bg-purple-50 text-purple-700 border-purple-200 animate-pulse" :
-                        s.approvalStatus === "Edited" ? "bg-teal-50 text-teal-700 border-teal-200" :
-                        s.approvalStatus === "Objection" ? "bg-orange-50 text-orange-700 border-orange-200" :
-                        "bg-slate-50 text-slate-600 border-slate-200"
-                      }`}>
-                        {s.approvalStatus === "Editing" ? `Editing (${s.processingProgress || 0}%)` : s.approvalStatus}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 text-right">
-                      <div className="inline-flex gap-2">
-                        <button
-                          onClick={() => setViewScript(s)}
-                          className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 transition-colors"
-                          title="View Script"
-                        >
-                          <LuEye className="h-4 w-4" />
-                        </button>
-                        
-                        <button
-                          onClick={() => openEdit(s)}
-                          className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 transition-colors"
-                          title="Edit Script"
-                        >
-                          <LuPencil className="h-4 w-4" />
-                        </button>
-
-                        <button
-                          onClick={() => onDelete(s)}
-                          className="rounded-lg border border-slate-200 p-1.5 text-red-500 hover:bg-red-50 transition-colors"
-                          title="Delete Script"
-                        >
-                          <LuTrash2 className="h-4 w-4" />
-                        </button>
-
-                        {!s.createdByAdmin ? (
-                          <span className="inline-flex items-center rounded-lg bg-orange-50 border border-orange-200 px-2.5 py-1.5 text-xs font-bold text-orange-700 whitespace-nowrap">
-                            Private
-                          </span>
-                        ) : (
-                          creators.length > 0 && (
-                            <button
-                              onClick={() => openAssign(s)}
-                              className="flex items-center gap-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 px-2 py-1.5 text-xs font-bold text-indigo-700 transition"
-                              title="Assign to Creator"
-                            >
-                              <LuUsers className="h-3.5 w-3.5 mr-1" /> Assign
-                            </button>
-                          )
-                        )}
-
-                        {s.approvalStatus === "Edited" && (
-                          <div className="flex gap-1.5 shrink-0">
-                            <button
-                              disabled={updatingId === s.scriptId}
-                              onClick={() => updateStatus(s.scriptId, "Approved")}
-                              className="flex items-center gap-1 rounded-lg bg-green-600 hover:bg-green-700 px-2.5 py-1 text-xs font-bold text-white shadow transition"
-                              title="Approve Video"
-                            >
-                              <LuCheck className="h-3.5 w-3.5" /> Approve
-                            </button>
-
-                            <button
-                              disabled={updatingId === s.scriptId}
-                              onClick={() => setObjectionScript(s)}
-                              className="flex items-center gap-1 rounded-lg bg-orange-500 hover:bg-orange-600 px-2.5 py-1 text-xs font-bold text-white shadow transition"
-                              title="Raise Objection"
-                            >
-                              <LuCircleHelp className="h-3.5 w-3.5" /> Objection
-                            </button>
-
-                            <button
-                              disabled={updatingId === s.scriptId}
-                              onClick={() => updateStatus(s.scriptId, "Rejected")}
-                              className="flex items-center gap-1 rounded-lg bg-red-600 hover:bg-red-700 px-2.5 py-1 text-xs font-bold text-white shadow transition"
-                              title="Reject Video"
-                            >
-                              <LuX className="h-3.5 w-3.5" /> Reject
-                            </button>
+                      </td>
+                      <td className="px-4 py-4">
+                        {allAssigned.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5 max-w-[200px]">
+                            {allAssigned.map(ac => (
+                              <span
+                                key={ac.creatorId}
+                                className="inline-flex flex-col rounded-lg bg-indigo-50 border border-indigo-100 px-2 py-1 text-xs"
+                              >
+                                <span className="font-semibold text-indigo-900 leading-tight">{ac.name}</span>
+                                <span className="text-[9px] font-bold text-indigo-400 uppercase tracking-wide">
+                                  {ac.role}
+                                </span>
+                              </span>
+                            ))}
                           </div>
+                        ) : (
+                          <span className="text-slate-400 italic">Unassigned</span>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-4 py-4">
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+                          {group.category}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 font-mono text-xs">{group.duration}</td>
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                          <LuClock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                          {group.scheduledTime}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4">
+                        {allAssigned.length > 0 ? (
+                          <div className="flex flex-col gap-1.5">
+                            {group.submissions.map(sub => {
+                              const creatorName = sub.assignedCreators?.[0]?.name || "Creator";
+                              return (
+                                <div key={sub.scriptId} className="flex items-center gap-2">
+                                  <span className="text-xs font-semibold text-slate-500">{creatorName}:</span>
+                                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold border ${
+                                    sub.approvalStatus === "Approved" ? "bg-green-50 text-green-700 border-green-200" :
+                                    sub.approvalStatus === "Rejected" ? "bg-red-50 text-red-700 border-red-200" :
+                                    sub.approvalStatus === "Pending" || sub.approvalStatus === "Waiting" || sub.approvalStatus === "Draft" ? "bg-amber-50 text-amber-700 border-amber-200" :
+                                    sub.approvalStatus === "Submitted" ? "bg-blue-50 text-blue-700 border-blue-200" :
+                                    sub.approvalStatus === "Editing" ? "bg-purple-50 text-purple-700 border-purple-200 animate-pulse" :
+                                    sub.approvalStatus === "Edited" ? "bg-teal-50 text-teal-700 border-teal-200" :
+                                    sub.approvalStatus === "Objection" ? "bg-orange-50 text-orange-700 border-orange-200" :
+                                    "bg-slate-50 text-slate-600 border-slate-200"
+                                  }`}>
+                                    {sub.approvalStatus === "Editing" ? `Editing (${sub.processingProgress || 0}%)` : sub.approvalStatus}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-slate-50 text-slate-600 border border-slate-200 px-2 py-0.5 text-xs font-bold">
+                            Draft
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <div className="inline-flex gap-2">
+                          <button
+                            onClick={() => setViewScript(group)}
+                            className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 transition-colors"
+                            title="View Script"
+                          >
+                            <LuEye className="h-4 w-4" />
+                          </button>
+                          
+                          <button
+                            onClick={() => openEdit(group.submissions[0])}
+                            className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 transition-colors"
+                            title="Edit Script"
+                          >
+                            <LuPencil className="h-4 w-4" />
+                          </button>
+
+                          <button
+                            onClick={() => onDeleteGroup(group)}
+                            className="rounded-lg border border-slate-200 p-1.5 text-red-500 hover:bg-red-50 transition-colors"
+                            title="Delete Script"
+                          >
+                            <LuTrash2 className="h-4 w-4" />
+                          </button>
+
+                          {!group.submissions[0].createdByAdmin ? (
+                            <span className="inline-flex items-center rounded-lg bg-orange-50 border border-orange-200 px-2.5 py-1.5 text-xs font-bold text-orange-700 whitespace-nowrap">
+                              Private
+                            </span>
+                          ) : (
+                            creators.length > 0 && (
+                              <button
+                                onClick={() => openAssign(group.submissions[0])}
+                                className="flex items-center gap-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 px-2 py-1.5 text-xs font-bold text-indigo-700 transition"
+                                title="Assign to Creator"
+                              >
+                                <LuUsers className="h-3.5 w-3.5 mr-1" /> Assign
+                              </button>
+                            )
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -643,146 +757,253 @@ export function AppScriptsApproval() {
       </div>
 
       {/* View Script Modal */}
-      {viewScript && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button type="button" className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setViewScript(null)} />
-          <div className="relative z-10 w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl border border-slate-200 flex flex-col max-h-[85vh]">
-            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 shrink-0">
-              <div>
-                <h3 className="text-base font-bold text-slate-900">Review Submitted Script</h3>
-                <p className="text-xs text-slate-400">
-                  {viewScript.userId ? `By ${viewScript.creatorName} (${viewScript.creatorRole})` : "Unassigned Script Template"}
-                </p>
+      {viewScript && (() => {
+        const activeSub = viewScript.submissions?.find(sub => sub.scriptId === selectedSubId) || null;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <button type="button" className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setViewScript(null)} />
+            <div className="relative z-10 w-full max-w-5xl rounded-2xl bg-white p-6 shadow-xl border border-slate-200 flex flex-col max-h-[90vh]">
+              
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 shrink-0">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">UGC Prompter Script Workspace</h3>
+                  <p className="text-xs text-slate-400">
+                    {viewScript.submissions?.length > 0 ? `${viewScript.submissions.length} Creator Assignment(s)` : "Unassigned Script Template"}
+                  </p>
+                </div>
+                <button type="button" onClick={() => setViewScript(null)} className="text-slate-400 hover:text-slate-600">
+                  <LuX className="h-5 w-5" />
+                </button>
               </div>
-              <button type="button" onClick={() => setViewScript(null)} className="text-slate-400 hover:text-slate-600">
-                <LuX className="h-5 w-5" />
-              </button>
-            </div>
-            
-            <div className="space-y-4 overflow-y-auto pr-1 flex-1 py-1">
-              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl text-sm border border-slate-100">
-                <div>
-                  <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">Script Title</span>
-                  <span className="font-bold text-slate-800">{viewScript.title}</span>
-                </div>
-                <div>
-                  <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">Category</span>
-                  <span className="font-semibold text-slate-800">{viewScript.category}</span>
-                </div>
-                <div>
-                  <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">Duration / TimeGroup</span>
-                  <span className="font-mono text-slate-800">{viewScript.duration} / {viewScript.timeGroup}</span>
-                </div>
-                <div>
-                  <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">Scheduled Time</span>
-                  <span className="font-semibold text-slate-800">{viewScript.scheduledTime}</span>
-                </div>
-              </div>
-
-              {viewScript.imageUrl && (
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Reference Image</label>
-                  <div className="max-w-xs overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                    <img
-                      src={mediaUrl(viewScript.imageUrl)}
-                      alt="Reference"
-                      className="w-full h-auto object-cover max-h-48"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {viewScript.description && (
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Context / Description</label>
-                  <div className="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-xs leading-relaxed text-slate-700 whitespace-pre-wrap font-sans">
-                    {viewScript.description}
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Script Content</label>
-                <div className="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-4 text-sm leading-relaxed text-slate-800 whitespace-pre-wrap font-sans min-h-[150px]">
-                  {viewScript.body}
-                </div>
-              </div>
-
-              {viewScript.objectionNote && (
-                <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 text-xs text-orange-850">
-                  <span className="font-bold uppercase tracking-wider block mb-1">Objection Reason:</span>
-                  {viewScript.objectionNote}
-                </div>
-              )}
-
-              {(viewScript.rawVideoUrl || viewScript.processedVideoUrl) && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {viewScript.rawVideoUrl && (
+              
+              {/* Split Body */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-hidden flex-1 min-h-0">
+                
+                {/* Left Column: Script details (col-span-5) */}
+                <div className="lg:col-span-5 overflow-y-auto pr-2 space-y-4 border-r border-slate-100">
+                  <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-xl text-xs border border-slate-100">
                     <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Raw Video (Creator Upload)</label>
-                      <div className="rounded-xl overflow-hidden border border-slate-200 bg-black aspect-video">
-                        <video src={mediaUrl(viewScript.rawVideoUrl)} controls className="w-full h-full object-contain" />
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Script Title</span>
+                      <span className="font-bold text-slate-800">{viewScript.title}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Category</span>
+                      <span className="font-semibold text-slate-800">{viewScript.category}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Duration</span>
+                      <span className="font-mono text-slate-800">{viewScript.duration}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Scheduled Time</span>
+                      <span className="font-semibold text-slate-800">{viewScript.scheduledTime}</span>
+                    </div>
+                  </div>
+
+                  {viewScript.imageUrl && (
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Reference Image</label>
+                      <div className="max-w-xs overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                        <img
+                          src={mediaUrl(viewScript.imageUrl)}
+                          alt="Reference"
+                          className="w-full h-auto object-cover max-h-40"
+                        />
                       </div>
                     </div>
                   )}
-                  {viewScript.processedVideoUrl && (
+
+                  {viewScript.description && (
                     <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Processed Video (Edited AI)</label>
-                      <div className="rounded-xl overflow-hidden border border-slate-200 bg-black aspect-video">
-                        <video src={mediaUrl(viewScript.processedVideoUrl)} controls className="w-full h-full object-contain" />
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Context / Description</label>
+                      <div className="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-2.5 text-xs leading-relaxed text-slate-700 whitespace-pre-wrap font-sans">
+                        {viewScript.description}
                       </div>
                     </div>
                   )}
-                </div>
-              )}
 
-              {viewScript.viralVideoUrl && (
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Viral-Optimized Video (AI)</label>
-                  <div className="rounded-xl overflow-hidden border border-slate-200 bg-black max-w-sm aspect-video mx-auto">
-                    <video src={mediaUrl(viewScript.viralVideoUrl)} controls className="w-full h-full object-contain" />
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Script Content</label>
+                    <div className="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 text-xs leading-relaxed text-slate-850 whitespace-pre-wrap font-sans">
+                      {viewScript.body}
+                    </div>
                   </div>
                 </div>
-              )}
-            </div>
 
-            <div className="flex justify-end items-center pt-4 border-t border-slate-100 mt-5 shrink-0 gap-3">
-              {viewScript.approvalStatus === "Edited" && (
-                <>
-                  <button
-                    disabled={updatingId === viewScript.scriptId}
-                    onClick={() => { updateStatus(viewScript.scriptId, "Approved"); setViewScript(null); }}
-                    className="flex items-center gap-1.5 rounded-lg bg-green-600 hover:bg-green-700 px-4 py-2 text-sm font-semibold text-white transition shadow"
-                  >
-                    <LuCheck className="h-4 w-4" /> Approve Video
-                  </button>
-                  <button
-                    disabled={updatingId === viewScript.scriptId}
-                    onClick={() => { setObjectionScript(viewScript); setViewScript(null); }}
-                    className="flex items-center gap-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 px-4 py-2 text-sm font-semibold text-white transition shadow"
-                  >
-                    <LuCircleHelp className="h-4 w-4" /> Objection
-                  </button>
-                  <button
-                    disabled={updatingId === viewScript.scriptId}
-                    onClick={() => { updateStatus(viewScript.scriptId, "Rejected"); setViewScript(null); }}
-                    className="flex items-center gap-1.5 rounded-lg bg-red-600 hover:bg-red-700 px-4 py-2 text-sm font-semibold text-white transition shadow"
-                  >
-                    <LuX className="h-4 w-4" /> Reject Video
-                  </button>
-                </>
-              )}
-              <button
-                type="button"
-                onClick={() => setViewScript(null)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
-              >
-                Close
-              </button>
+                {/* Right Column: Submission & Video Review workspace (col-span-7) */}
+                <div className="lg:col-span-7 overflow-y-auto pl-2 flex flex-col min-h-0">
+                  
+                  {/* Creator selector */}
+                  <div className="mb-4">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                      Creator Assignments
+                    </label>
+                    {viewScript.submissions && viewScript.submissions.length > 0 && viewScript.submissions.some(sub => sub.assignedCreators && sub.assignedCreators.length > 0) ? (
+                      <div className="flex flex-wrap gap-2">
+                        {viewScript.submissions.map(sub => {
+                          const creator = sub.assignedCreators?.[0];
+                          if (!creator) return null;
+                          const isSelected = selectedSubId === sub.scriptId;
+                          return (
+                            <button
+                              key={sub.scriptId}
+                              type="button"
+                              onClick={() => setSelectedSubId(isSelected ? null : sub.scriptId)}
+                              className={`flex flex-col text-left px-3 py-1.5 rounded-xl border transition shadow-xs cursor-pointer ${
+                                isSelected
+                                  ? "bg-indigo-50 border-indigo-300 text-indigo-900"
+                                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                              }`}
+                            >
+                              <span className="text-xs font-bold">{creator.name}</span>
+                              <span className="text-[9px] font-extrabold uppercase tracking-wide mt-0.5 inline-flex items-center gap-1 text-slate-400">
+                                {creator.role} • 
+                                <span className={`px-1.5 py-0.2 rounded-full font-bold ${
+                                  sub.approvalStatus === "Approved" ? "bg-green-100 text-green-700" :
+                                  sub.approvalStatus === "Rejected" ? "bg-red-100 text-red-700" :
+                                  sub.approvalStatus === "Submitted" ? "bg-blue-100 text-blue-700" :
+                                  sub.approvalStatus === "Editing" ? "bg-purple-100 text-purple-700" :
+                                  sub.approvalStatus === "Edited" ? "bg-teal-100 text-teal-700" :
+                                  "bg-amber-100 text-amber-700"
+                                }`}>
+                                  {sub.approvalStatus}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-slate-400 italic py-2">
+                        No creators assigned to this script template yet.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Submission Specific Content Panel */}
+                  <div className="flex-1 min-h-0">
+                    {activeSub ? (
+                      <div className="space-y-4">
+                        {renderWorkflowProgress(activeSub)}
+
+                        {activeSub.objectionNote && (
+                          <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 text-xs text-orange-850">
+                            <span className="font-bold uppercase tracking-wider block mb-1">Objection Reason:</span>
+                            {activeSub.objectionNote}
+                          </div>
+                        )}
+
+                        {/* Video section */}
+                        <div className="grid grid-cols-1 gap-4">
+                          {/* Raw Video Box */}
+                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                              Raw Video (Creator Upload)
+                            </label>
+                            {activeSub.rawVideoUrl ? (
+                              <div className="rounded-lg overflow-hidden bg-black aspect-video max-w-sm mx-auto">
+                                <video src={mediaUrl(activeSub.rawVideoUrl)} controls className="w-full h-full object-contain" />
+                              </div>
+                            ) : (
+                              <div className="text-xs text-slate-400 italic py-4 text-center">
+                                No raw video uploaded yet by this creator.
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Edited Video Box */}
+                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                              Edited Videos (AI Generated)
+                            </label>
+                            {(activeSub.processedVideoUrl || activeSub.viralVideoUrl) ? (
+                              <div className="grid grid-cols-1 gap-4">
+                                {activeSub.processedVideoUrl && (
+                                  <div>
+                                    <span className="block text-[9px] font-bold uppercase text-slate-400 mb-1">AI Processed Video</span>
+                                    <div className="rounded-lg overflow-hidden bg-black aspect-video max-w-sm mx-auto">
+                                      <video src={mediaUrl(activeSub.processedVideoUrl)} controls className="w-full h-full object-contain" />
+                                    </div>
+                                  </div>
+                                )}
+                                {activeSub.viralVideoUrl && (
+                                  <div>
+                                    <span className="block text-[9px] font-bold uppercase text-slate-400 mb-1">AI Viral-Optimized Video</span>
+                                    <div className="rounded-lg overflow-hidden bg-black aspect-video max-w-sm mx-auto">
+                                      <video src={mediaUrl(activeSub.viralVideoUrl)} controls className="w-full h-full object-contain" />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="text-xs text-slate-400 italic py-4 text-center">
+                                No edited video generated by AI yet.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Approval Panel */}
+                        {activeSub.approvalStatus === "Edited" && (
+                          <div className="bg-indigo-50/50 p-3.5 rounded-xl border border-indigo-100 flex items-center justify-between gap-3 mt-4 shrink-0">
+                            <span className="text-xs font-semibold text-indigo-900">Approve this submission?</span>
+                            <div className="flex gap-2">
+                              <button
+                                disabled={updatingId === activeSub.scriptId}
+                                onClick={() => { updateStatus(activeSub.scriptId, "Approved"); setViewScript(null); }}
+                                className="flex items-center gap-1.5 rounded-lg bg-green-600 hover:bg-green-700 px-3 py-1.5 text-xs font-bold text-white transition shadow cursor-pointer"
+                              >
+                                <LuCheck className="h-3.5 w-3.5" /> Approve
+                              </button>
+                              <button
+                                disabled={updatingId === activeSub.scriptId}
+                                onClick={() => { setObjectionScript(activeSub); setViewScript(null); }}
+                                className="flex items-center gap-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 px-3 py-1.5 text-xs font-bold text-white transition shadow cursor-pointer"
+                              >
+                                <LuCircleHelp className="h-3.5 w-3.5" /> Objection
+                              </button>
+                              <button
+                                disabled={updatingId === activeSub.scriptId}
+                                onClick={() => { updateStatus(activeSub.scriptId, "Rejected"); setViewScript(null); }}
+                                className="flex items-center gap-1.5 rounded-lg bg-red-600 hover:bg-red-700 px-3 py-1.5 text-xs font-bold text-white transition shadow cursor-pointer"
+                              >
+                                <LuX className="h-3.5 w-3.5" /> Reject
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full text-slate-400 py-12 text-center border-2 border-dashed border-slate-100 rounded-2xl">
+                        <LuUsers className="h-8 w-8 text-slate-300 mb-2 animate-bounce" />
+                        <p className="text-xs font-semibold max-w-[280px]">
+                          Select a creator assignment button above to review their submission and videos.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+                
+              </div>
+
+              {/* Close Button Footer */}
+              <div className="flex justify-end items-center pt-3 border-t border-slate-100 mt-4 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setViewScript(null)}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Create / Edit Modal */}
       {modalOpen && (
@@ -818,7 +1039,7 @@ export function AppScriptsApproval() {
                     onChange={(e) => setCategory(e.target.value)}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
                   >
-                    {CATEGORIES.map(cat => (
+                    {dynamicCategories.map(cat => (
                       <option key={cat} value={cat}>{cat}</option>
                     ))}
                   </select>

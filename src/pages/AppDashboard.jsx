@@ -28,6 +28,8 @@ import { AppTools } from "./app/AppTools";
 import { AppPersonalityComingSoon } from "./app/AppPersonalityComingSoon";
 import { AppPersonalAIComingSoon } from "./app/AppPersonalAIComingSoon";
 import { AppScriptsApproval } from "./app/AppScriptsApproval";
+import { CategoryManagement } from "./app/CategoryManagement";
+import { AppAiAgent } from "./app/AppAiAgent";
 
 // ── Nav configs ────────────────────────────────────────────────────────────────
 
@@ -35,6 +37,7 @@ const FC_NAV = [
   { to: "/app",               label: "Overview",     headerTitle: "Overview",             end: true, icon: "overview" },
   { to: "/app/personality",   label: "Personality",  headerTitle: "Personality Profile",   icon: "candidates" },
   { to: "/app/personal-ai",   label: "Personal AI",  headerTitle: "Personal AI Copilot",   icon: "aiGenerator" },
+  { to: "/app/ai-agent",      label: "AI Agent",     headerTitle: "AI Agent Management",   icon: "bot" },
   { to: "/app/popularity",    label: "Popularity",   headerTitle: "CEO Popularity Index", icon: "popularity" },
   { to: "/app/tools",         label: "Tools",        headerTitle: "Tools Hub",            icon: "matrix" },
 ];
@@ -60,6 +63,7 @@ const FOUNDER_NAV = [
   { to: "/app",          label: "Overview",       headerTitle: "Overview",                end: true, icon: "overview" },
   { to: "/app/ceos",     label: "CEOs / Founders", headerTitle: "CEO & Founder Management", icon: "candidates" },
   { to: "/app/ugc-prompter", label: "UGC Prompter", headerTitle: "UGC Prompter",           icon: "ads" },
+  { to: "/app/tools",         label: "Tools",        headerTitle: "Tools Hub",            icon: "matrix" },
 ];
 
 // ── Dashboard selector ─────────────────────────────────────────────────────────
@@ -93,6 +97,8 @@ export function AppDashboard() {
           <Route index    element={<AppOverview />} />
           <Route path="ceos"     element={<FounderDashboard />} />
           <Route path="ugc-prompter" element={<AppScriptsApproval />} />
+          <Route path="tools" element={<AppTools />} />
+          <Route path="category-management" element={<CategoryManagement />} />
           <Route path="settings" element={<AppSettings />} />
           <Route path="help"     element={<HelpPage />} />
           <Route path="*"        element={<Navigate to={basePath} replace />} />
@@ -185,6 +191,7 @@ export function AppDashboard() {
         <Route path="ugc-prompter"     element={<AppScriptsApproval />} />
         <Route path="personality"      element={<AppPersonalityComingSoon />} />
         <Route path="personal-ai"      element={<AppPersonalAIComingSoon />} />
+        <Route path="ai-agent"         element={<AppAiAgent />} />
         <Route path="help"             element={<HelpPage />} />
         <Route path="*"                element={<Navigate to={basePath} replace />} />
       </Routes>
