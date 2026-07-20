@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api } from "../lib/api";
+import { api, mediaUrl } from "../lib/api";
 import { toastSuccess } from "../lib/toast";
 import ReactMarkdown from "react-markdown";
 import {
@@ -47,10 +47,31 @@ export function PublicAgentChat() {
     isVoicePageOpenRef.current = isVoicePageOpen;
   }, [isVoicePageOpen]);
 
+  const wsRef = useRef(null);
+  const processorRef = useRef(null);
+  const silenceTimerRef = useRef(null);
   const recognitionRef = useRef(null);
   const audioRef = useRef(null);
   const speechSentRef = useRef(false);
   const sendingRef = useRef(false);
+
+  // Background media stream / Web Audio API refs for Hands-free Interruption
+  const mediaStreamRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const vadIntervalRef = useRef(null);
+  const aiSpeechStartRef = useRef(0);
+  const isManuallyMutedRef = useRef(false);
+
+  // Initialize background stream for Acoustic Echo Cancellation (AEC) and Voice Activity Detection (VAD)
+  async function enableAEC() {
+    // Option B: No background mic stream during AI playback to prevent echo/feedback loops
+    return;
+  }
+
+  function disableAEC() {
+    return;
+  }
 
   // Auto-detect visitor device information
   function getBrowserDeviceName() {
@@ -68,18 +89,6 @@ export function PublicAgentChat() {
     if (!agentId) return;
     setLoadingAgent(true);
     try {
-      // Since visitor doesn't have token, we hit a public route or bypass local auth if needed.
-      // But wait! GET /api/agents/:id is normally authenticated. Let's see if we should fetch
-      // agent settings via public ask endpoint or if we need a public configuration fetcher.
-      // Wait, we can hit GET /api/public/agent/:id if we had one, OR we can fetch it from our backend.
-      // Let's check: does our backend have a public endpoint for fetching agent settings?
-      // No, the backend routes/agents.js we created has requireAuth on GET /:agent_id.
-      // Wait! Let's think: the visitor scanning the QR code doesn't have a login token. So how can they see the logo and welcome message?
-      // They need to be able to fetch agent public customization parameters (logo, color, name) without auth!
-      // This is a crucial logical detail! We should expose a public route to get agent details for styling!
-      // Let's fetch it via a public endpoint in the backend. Let's register `GET /api/agents/:agent_id/public-config` in the backend as a public route!
-      // This is exactly the kind of robust logic that avoids "tukka".
-      // Let's implement that fetch here:
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/api/agents/${agentId}/public-config`);
       if (res.ok) {
         const data = await res.json();
@@ -119,6 +128,12 @@ export function PublicAgentChat() {
         setIsRegistered(true);
       }
     }
+    return () => {
+      disableAEC();
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    };
   }, [agentId]);
 
   useEffect(() => {
@@ -150,6 +165,9 @@ export function PublicAgentChat() {
   // Send Message function
   async function sendTextMessage(userText) {
     if (!userText.trim() || sendingRef.current || !agentId) return;
+
+    // Immediately stop any ongoing AI audio speech
+    stopAiSpeech();
 
     sendingRef.current = true;
     setChatLoading(true);
@@ -202,102 +220,286 @@ export function PublicAgentChat() {
     await sendTextMessage(txt);
   }
 
+  const isPlayingAudioRef = useRef(false);
+  useEffect(() => {
+    isPlayingAudioRef.current = isPlayingAudio;
+  }, [isPlayingAudio]);
+
+  function stopAiSpeech() {
+    if (audioRef.current) {
+      try {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      } catch (e) {}
+      audioRef.current = null;
+    }
+    setIsPlayingAudio(false);
+    isPlayingAudioRef.current = false;
+  }
+
   function playSpeech(text) {
     if (!agentId) return;
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
+
+    stopAiSpeech();
     setIsPlayingAudio(true);
+    isPlayingAudioRef.current = true;
+    aiSpeechStartRef.current = Date.now();
+
     const audioUrl = `${import.meta.env.VITE_API_BASE_URL || ""}/api/agents/${agentId}/speak?text=${encodeURIComponent(text)}`;
     const audio = new Audio(audioUrl);
     audioRef.current = audio;
 
-    // Start listening during playback to support barge-in interruption!
-    if (isVoicePageOpenRef.current) {
-      startRecording();
-    }
-
     audio.play().catch(err => {
       console.error(err);
       setIsPlayingAudio(false);
-      if (isVoicePageOpenRef.current) {
-        startRecording();
-      }
+      isPlayingAudioRef.current = false;
     });
+
     audio.onended = () => {
       setIsPlayingAudio(false);
-      if (isVoicePageOpenRef.current) {
+      isPlayingAudioRef.current = false;
+      // Auto-start listening again after AI finishes speaking in voice call mode
+      if (isVoicePageOpenRef.current && !isManuallyMutedRef.current) {
         startRecording();
       }
     };
   }
 
-  // Browser-based Speech-to-Text STT with auto-send on silence
+  // Real-time External STT via Backend WebSocket Proxy (/api/agents/ws/transcribe)
   function startRecording() {
-    if (isRecording) return;
+    if (isRecording || wsRef.current) return;
+    isManuallyMutedRef.current = false;
     speechSentRef.current = false;
 
+    try {
+      const apiBase = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:4000`;
+      const urlObj = new URL(apiBase, window.location.href);
+      const wsProtocol = urlObj.protocol === "https:" ? "wss:" : "ws:";
+      const wsHost = urlObj.port ? `${urlObj.hostname}:${urlObj.port}` : urlObj.host;
+      const wsUrl = `${wsProtocol}//${wsHost}/api/agents/ws/transcribe?agent_id=${encodeURIComponent(agentId || "")}`;
+
+      console.log("[STT] Connecting to backend WebSocket proxy:", wsUrl);
+      const socket = new WebSocket(wsUrl);
+      wsRef.current = socket;
+
+      socket.onopen = async () => {
+        console.log("[STT] WebSocket connected, requesting microphone access...");
+        setIsRecording(true);
+
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              channelCount: 1,
+              sampleRate: 16000,
+              echoCancellation: true,
+              noiseSuppression: true
+            }
+          });
+          mediaStreamRef.current = stream;
+
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          const audioCtx = new AudioContextClass({ sampleRate: 16000 });
+          audioContextRef.current = audioCtx;
+
+          const source = audioCtx.createMediaStreamSource(stream);
+          const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+          processorRef.current = processor;
+
+          processor.onaudioprocess = (e) => {
+            if (socket.readyState !== WebSocket.OPEN) return;
+
+            const inputData = e.inputBuffer.getChannelData(0);
+
+            // VAD Interruption Check: compute RMS energy of microphone input while AI is speaking
+            if (isPlayingAudioRef.current && (Date.now() - aiSpeechStartRef.current > 350)) {
+              let sum = 0;
+              for (let i = 0; i < inputData.length; i++) {
+                sum += inputData[i] * inputData[i];
+              }
+              const rms = Math.sqrt(sum / inputData.length);
+
+              // If user speaks into mic (RMS > 0.045), stop AI speech immediately to listen to user!
+              if (rms > 0.045) {
+                console.log("[Interruption VAD] User voice energy detected (RMS:", rms.toFixed(4), ") - stopping AI speech!");
+                stopAiSpeech();
+              }
+            }
+
+            // Convert 32-bit float PCM to 16-bit Int16 PCM ArrayBuffer
+            const pcm16 = new Int16Array(inputData.length);
+            for (let i = 0; i < inputData.length; i++) {
+              const s = Math.max(-1, Math.min(1, inputData[i]));
+              pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+            socket.send(pcm16.buffer);
+          };
+
+          source.connect(processor);
+          processor.connect(audioCtx.destination);
+        } catch (micErr) {
+          console.error("[STT] Microphone access error:", micErr);
+          setIsRecording(false);
+          stopRecording();
+        }
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          let textStr = "";
+          let isFinal = false;
+
+          if (typeof event.data === "string") {
+            try {
+              const data = JSON.parse(event.data);
+              const altTranscript = data?.channel?.alternatives?.[0]?.transcript;
+              if (typeof altTranscript === "string") {
+                textStr = altTranscript;
+              } else if (typeof data.transcript === "string") {
+                textStr = data.transcript;
+              } else if (typeof data.text === "string") {
+                textStr = data.text;
+              } else if (typeof data.message === "string") {
+                textStr = data.message;
+              }
+              isFinal = Boolean(data.is_final || data.speech_final || data.final);
+            } catch (e) {
+              textStr = event.data;
+            }
+          } else if (event.data && typeof event.data === "object") {
+            const altTranscript = event.data?.channel?.alternatives?.[0]?.transcript;
+            if (typeof altTranscript === "string") textStr = altTranscript;
+            else if (typeof event.data.transcript === "string") textStr = event.data.transcript;
+            else if (typeof event.data.text === "string") textStr = event.data.text;
+          }
+
+          if (typeof textStr !== "string") {
+            textStr = "";
+          }
+
+          const cleanText = textStr.trim();
+          if (cleanText) {
+            // If AI is currently speaking and user speaks, interrupt AI audio immediately!
+            if (isPlayingAudioRef.current && (Date.now() - aiSpeechStartRef.current > 250)) {
+              console.log("[Interruption STT] User speech transcript detected ('" + cleanText + "') - stopping AI speech!");
+              stopAiSpeech();
+            }
+
+            setChatInput(cleanText);
+
+            // Auto-send on final or 1500ms silence timeout
+            if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+            if (isFinal) {
+              sendTextMessage(cleanText);
+            } else {
+              silenceTimerRef.current = setTimeout(() => {
+                sendTextMessage(cleanText);
+              }, 1500);
+            }
+          }
+        } catch (err) {
+          console.error("[STT] Failed to parse message:", err);
+        }
+      };
+
+      socket.onerror = (err) => {
+        console.error("[STT] WebSocket connection error:", err);
+      };
+
+      socket.onclose = () => {
+        console.log("[STT] WebSocket connection closed, enabling fallback Speech STT...");
+        wsRef.current = null;
+        if (isVoicePageOpenRef.current && !isManuallyMutedRef.current) {
+          startFallbackWebSpeechSTT();
+        } else {
+          setIsRecording(false);
+        }
+      };
+    } catch (err) {
+      console.error("[STT] Failed to initialize WebSocket:", err);
+      if (isVoicePageOpenRef.current && !isManuallyMutedRef.current) {
+        startFallbackWebSpeechSTT();
+      } else {
+        setIsRecording(false);
+      }
+    }
+  }
+
+  function startFallbackWebSpeechSTT() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert("Your browser does not support voice input. Please use Google Chrome or Microsoft Edge.");
+      setIsRecording(false);
       return;
     }
-
     const recognition = new SpeechRecognition();
-    recognition.lang = "en-IN";
+    recognition.lang = "en-IN"; // English (Indian accent) to prevent Devanagari text conversion
     recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
-    recognition.continuous = false;
+    recognition.continuous = true;
+    recognition.onstart = () => setIsRecording(true);
+    recognition.onresult = (e) => {
+      let interim = "";
+      let final = "";
+      for (let i = e.resultIndex; i < e.results.length; ++i) {
+        if (e.results[i].isFinal) {
+          final += e.results[i][0].transcript;
+        } else {
+          interim += e.results[i][0].transcript;
+        }
+      }
+      const cleanText = (final || interim).trim();
+      if (cleanText) {
+        if (isPlayingAudioRef.current && (Date.now() - aiSpeechStartRef.current > 250)) {
+          console.log("[Interruption WebSpeech] User speech detected ('" + cleanText + "') - stopping AI speech!");
+          stopAiSpeech();
+        }
 
-    recognition.onstart = () => {
-      setIsRecording(true);
-      setRecordingText("");
-    };
+        setChatInput(cleanText);
 
-    recognition.onresult = (event) => {
-      const transcript = Array.from(event.results)
-        .map(result => result[0])
-        .map(result => result.transcript)
-        .join("");
-      setChatInput(transcript);
-
-      // Barge-in (Interruption Handling): If user starts speaking, stop AI speaking instantly!
-      if (audioRef.current && !audioRef.current.paused) {
-        audioRef.current.pause();
-        setIsPlayingAudio(false);
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        if (final) {
+          sendTextMessage(cleanText);
+        } else {
+          silenceTimerRef.current = setTimeout(() => {
+            sendTextMessage(cleanText);
+          }, 1500);
+        }
       }
     };
-
-    recognition.onerror = (event) => {
-      console.error("[STT-Error]", event.error);
-      setIsRecording(false);
-    };
-
     recognition.onend = () => {
-      setIsRecording(false);
-      if (speechSentRef.current) return;
-      speechSentRef.current = true;
-      // Wait slightly and send the finalized transcript automatically
-      setTimeout(() => {
-        setChatInput((currentInput) => {
-          if (currentInput.trim()) {
-            sendTextMessage(currentInput.trim());
-          } else if (isVoicePageOpenRef.current) {
-            // Keep microphone listening if it timed out due to silence
-            startRecording();
+      if (isVoicePageOpenRef.current && !isManuallyMutedRef.current) {
+        setTimeout(() => {
+          if (isVoicePageOpenRef.current && !isManuallyMutedRef.current && !wsRef.current) {
+            try { recognition.start(); } catch (err) {}
           }
-          return "";
-        });
-      }, 300);
+        }, 300);
+      } else {
+        setIsRecording(false);
+      }
     };
-
     recognitionRef.current = recognition;
-    recognition.start();
+    try { recognition.start(); } catch (err) {}
   }
 
   function stopRecording() {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    if (processorRef.current) {
+      try { processorRef.current.disconnect(); } catch (e) {}
+      processorRef.current = null;
+    }
+    if (audioContextRef.current) {
+      try { audioContextRef.current.close(); } catch (e) {}
+      audioContextRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      try { mediaStreamRef.current.getTracks().forEach(track => track.stop()); } catch (e) {}
+      mediaStreamRef.current = null;
+    }
+    if (wsRef.current) {
+      try { wsRef.current.close(); } catch (e) {}
+      wsRef.current = null;
+    }
     if (recognitionRef.current) {
-      recognitionRef.current.stop();
+      try { recognitionRef.current.stop(); } catch (e) {}
+      recognitionRef.current = null;
     }
     setIsRecording(false);
   }
@@ -333,8 +535,8 @@ export function PublicAgentChat() {
       <header className="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-full overflow-hidden border border-slate-700 bg-white flex items-center justify-center">
-            {agent?.customization?.logo_url ? (
-              <img src={agent.customization.logo_url} alt="Logo" className="h-full w-full object-cover" />
+            {agent?.customization?.author_image_url || agent?.customization?.logo_url ? (
+              <img src={mediaUrl(agent.customization.author_image_url || agent.customization.logo_url)} alt="Avatar" className="h-full w-full object-cover" />
             ) : (
               <LuBot className="h-6 w-6 text-indigo-600" />
             )}
@@ -358,8 +560,12 @@ export function PublicAgentChat() {
           /* Registration Form */
           <div className="p-6 space-y-6">
             <div className="text-center">
-              <div className="h-14 w-14 bg-indigo-50 border border-indigo-150 rounded-full flex items-center justify-center mx-auto mb-3 shadow-sm">
-                <LuBot className="h-7 w-7 text-indigo-600" />
+              <div className="h-14 w-14 bg-indigo-50 border border-indigo-150 rounded-full flex items-center justify-center mx-auto mb-3 shadow-sm overflow-hidden">
+                {agent?.customization?.author_image_url || agent?.customization?.logo_url ? (
+                  <img src={mediaUrl(agent.customization.author_image_url || agent.customization.logo_url)} alt="Avatar" className="h-full w-full object-cover" />
+                ) : (
+                  <LuBot className="h-7 w-7 text-indigo-600" />
+                )}
               </div>
               <h2 className="text-base font-bold text-slate-800">Verify Identity to Chat</h2>
               <p className="text-xs text-slate-500 mt-1">Please enter your basic information. Your host will be notified of this session.</p>
@@ -437,16 +643,35 @@ export function PublicAgentChat() {
                 )}
 
                 {/* Core assistant visual circle */}
-                <div className={`w-24 h-24 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 border-2 ${
-                  chatLoading 
-                    ? "bg-slate-800 border-slate-600" 
-                    : isPlayingAudio 
-                      ? "bg-indigo-600 border-indigo-400 shadow-indigo-500/20" 
-                      : isRecording 
-                        ? "bg-emerald-600 border-emerald-400 shadow-emerald-500/20 animate-pulse" 
-                        : "bg-slate-900 border-slate-700"
-                }`}>
-                  <LuBot className={`h-10 w-10 text-white ${chatLoading ? "animate-bounce" : ""}`} />
+                <div 
+                  onClick={() => {
+                    if (isPlayingAudio) {
+                      stopAiSpeech();
+                      isManuallyMutedRef.current = false;
+                      startRecording();
+                    }
+                  }}
+                  className={`w-24 h-24 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 border-2 overflow-hidden ${
+                    isPlayingAudio ? "cursor-pointer hover:scale-105 active:scale-95" : ""
+                  } ${
+                    chatLoading 
+                      ? "bg-slate-800 border-slate-600" 
+                      : isPlayingAudio 
+                        ? "bg-indigo-600 border-indigo-400 shadow-indigo-500/20" 
+                        : isRecording 
+                          ? "bg-emerald-600 border-emerald-400 shadow-emerald-500/20 animate-pulse" 
+                          : "bg-slate-900 border-slate-700"
+                  }`}
+                >
+                  {agent?.customization?.author_image_url || agent?.customization?.logo_url ? (
+                    <img
+                      src={mediaUrl(agent.customization.author_image_url || agent.customization.logo_url)}
+                      alt="Avatar"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <LuBot className={`h-10 w-10 text-white ${chatLoading ? "animate-bounce" : ""}`} />
+                  )}
                 </div>
               </div>
 
@@ -461,7 +686,7 @@ export function PublicAgentChat() {
                         ? "text-emerald-400" 
                         : "text-slate-400"
                 }`}>
-                  {chatLoading ? "Thinking..." : isPlayingAudio ? "Speaking..." : isRecording ? "Listening... speak now" : "Tap Mic to Start"}
+                  {chatLoading ? "Thinking..." : isPlayingAudio ? "Speaking... Speak or tap to interrupt" : isRecording ? "Listening... speak now" : "Tap Mic to Start"}
                 </p>
                 {/* Live transcript indicator */}
                 {isRecording && chatInput && (
@@ -476,7 +701,19 @@ export function PublicAgentChat() {
                 {/* Mic toggle */}
                 <button
                   type="button"
-                  onClick={isRecording ? stopRecording : startRecording}
+                  onClick={() => {
+                    if (isPlayingAudio) {
+                      stopAiSpeech();
+                      isManuallyMutedRef.current = false;
+                      startRecording();
+                    } else if (isRecording) {
+                      isManuallyMutedRef.current = true;
+                      stopRecording();
+                    } else {
+                      isManuallyMutedRef.current = false;
+                      startRecording();
+                    }
+                  }}
                   className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 cursor-pointer ${
                     isRecording 
                       ? "bg-emerald-500 text-white hover:bg-emerald-600 shadow-emerald-500/10" 
@@ -491,7 +728,9 @@ export function PublicAgentChat() {
                 <button
                   type="button"
                   onClick={() => {
+                    isManuallyMutedRef.current = true;
                     stopRecording();
+                    disableAEC();
                     if (audioRef.current) {
                       audioRef.current.pause();
                     }

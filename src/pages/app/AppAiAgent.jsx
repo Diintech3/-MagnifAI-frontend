@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useAuth } from "../../auth/AuthProvider";
-import { api, apiForm } from "../../lib/api";
+import { api, apiForm, mediaUrl } from "../../lib/api";
 import { toastFromError, toastSuccess } from "../../lib/toast";
 import ReactMarkdown from "react-markdown";
 import {
@@ -22,7 +22,9 @@ import {
   LuSettings,
   LuVolume2,
   LuArrowLeft,
-  LuFolder
+  LuFolder,
+  LuEye,
+  LuEyeOff
 } from "react-icons/lu";
 
 const providerModels = {
@@ -94,15 +96,51 @@ export function AppAiAgent() {
   const [sysModel, setSysModel] = useState("gemini-3.5-flash");
   const [sysApiKey, setSysApiKey] = useState("");
   const [sysPrompt, setSysPrompt] = useState("");
+  const [showSysApiKey, setShowSysApiKey] = useState(false);
   // Voice Config
   const [voiceProvider, setVoiceProvider] = useState("elevenlabs");
   const [voiceName, setVoiceName] = useState("");
   const [voiceApiKey, setVoiceApiKey] = useState("");
+  const [showVoiceApiKey, setShowVoiceApiKey] = useState(false);
   // Customization
   const [custLogoUrl, setCustLogoUrl] = useState("");
   const [custColor, setCustColor] = useState("#4f46e5");
   const [custChatLink, setCustChatLink] = useState("");
   const [custAuthorImage, setCustAuthorImage] = useState("");
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  async function handleLogoUpload(file) {
+    if (!file) return;
+    setUploadingLogo(true);
+    const fd = new FormData();
+    fd.append("image", file);
+    try {
+      const data = await apiForm("/api/agents/upload-image", { token, formData: fd });
+      setCustLogoUrl(data.url);
+      toastSuccess("Brand logo image uploaded successfully to R2!");
+    } catch (err) {
+      toastFromError(err, "Failed to upload logo image");
+    } finally {
+      setUploadingLogo(false);
+    }
+  }
+
+  async function handleAvatarUpload(file) {
+    if (!file) return;
+    setUploadingAvatar(true);
+    const fd = new FormData();
+    fd.append("image", file);
+    try {
+      const data = await apiForm("/api/agents/upload-image", { token, formData: fd });
+      setCustAuthorImage(data.url);
+      toastSuccess("Author avatar image uploaded successfully to R2!");
+    } catch (err) {
+      toastFromError(err, "Failed to upload avatar image");
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
   // Q&A Pairs
   const [qaPairs, setQaPairs] = useState([{ q: "", a: "" }]);
 
@@ -375,6 +413,8 @@ export function AppAiAgent() {
     setStagedPdfs([]);
     setStagedUrls([]);
 
+    setShowSysApiKey(false);
+    setShowVoiceApiKey(false);
     setViewMode("form");
   }
 
@@ -382,6 +422,8 @@ export function AppAiAgent() {
     if (!selectedAgent) return;
     setFormMode("edit");
     setFormActiveTab("message");
+    setShowSysApiKey(false);
+    setShowVoiceApiKey(false);
 
     setFormName(selectedAgent.name || "");
     setFormDesc(selectedAgent.description || "");
@@ -389,22 +431,26 @@ export function AppAiAgent() {
     setFormPersonality(selectedAgent.personality || "");
     setFormStartingMsg(selectedAgent.starting_message || "");
 
+    const cleanKey = (key) => (key && !key.toLowerCase().includes("your_") && !key.toLowerCase().includes("here") ? key : "");
+
     const sys = selectedAgent.system_config || {};
     setSysProvider(sys.provider || "gemini");
     setSysModel(sys.model || "gemini-3.5-flash");
-    setSysApiKey(sys.api_key || "");
+    setSysApiKey(cleanKey(sys.api_key));
     setSysPrompt(sys.system_prompt || "");
 
     const vc = selectedAgent.voice_config || {};
     setVoiceProvider(vc.provider || "elevenlabs");
     setVoiceName(vc.voice_name || "");
-    setVoiceApiKey(vc.api_key || "");
+    setVoiceApiKey(cleanKey(vc.api_key));
+
+    const cleanUrl = (url) => (url && !url.includes("example.com") ? url : "");
 
     const cust = selectedAgent.customization || {};
-    setCustLogoUrl(cust.logo_url || "");
+    setCustLogoUrl(cleanUrl(cust.logo_url));
     setCustColor(cust.color || "#4f46e5");
-    setCustChatLink(cust.chat_link || "");
-    setCustAuthorImage(cust.author_image_url || "");
+    setCustChatLink(cleanUrl(cust.chat_link));
+    setCustAuthorImage(cleanUrl(cust.author_image_url));
 
     setQaPairs(cust.qa_pairs && cust.qa_pairs.length > 0 ? cust.qa_pairs : [{ q: "", a: "" }]);
     setStagedPdfs([]);
@@ -423,27 +469,27 @@ export function AppAiAgent() {
     }
 
     const payload = {
-      name: formName,
-      description: formDesc,
-      category: formCategory,
-      personality: formPersonality,
-      starting_message: formStartingMsg,
+      name: formName.trim(),
+      description: formDesc.trim(),
+      category: formCategory.trim(),
+      personality: formPersonality.trim(),
+      starting_message: formStartingMsg.trim(),
       system_config: {
         provider: sysProvider,
         model: sysModel,
-        api_key: sysApiKey,
-        system_prompt: sysPrompt
+        ...(sysApiKey.trim() ? { api_key: sysApiKey.trim() } : {}),
+        ...(sysPrompt.trim() ? { system_prompt: sysPrompt.trim() } : {})
       },
       voice_config: {
         provider: voiceProvider,
-        voice_name: voiceName,
-        api_key: voiceApiKey
+        ...(voiceName ? { voice_name: voiceName } : {}),
+        ...(voiceApiKey.trim() ? { api_key: voiceApiKey.trim() } : {})
       },
       customization: {
-        logo_url: custLogoUrl,
-        color: custColor,
-        chat_link: custChatLink,
-        author_image_url: custAuthorImage,
+        ...(custLogoUrl.trim() ? { logo_url: custLogoUrl.trim() } : {}),
+        ...(custColor.trim() ? { color: custColor.trim() } : {}),
+        ...(custChatLink.trim() ? { chat_link: custChatLink.trim() } : {}),
+        ...(custAuthorImage.trim() ? { author_image_url: custAuthorImage.trim() } : {}),
         qa_pairs: qaPairs.filter(pair => pair.q.trim() && pair.a.trim())
       },
       datastores: []
@@ -458,9 +504,9 @@ export function AppAiAgent() {
         });
         const newAgentId = res.agent_id;
 
-        toastSuccess("AI Agent created successfully! Document indexing started in background.");
-        await loadAgents();
+        toastSuccess("AI Agent created successfully!");
         setSelectedAgentId(newAgentId);
+        await loadAgents();
         setViewMode("dashboard");
 
         // Background indexing trigger
@@ -504,7 +550,8 @@ export function AppAiAgent() {
           body: payload
         });
 
-        toastSuccess("AI Agent updated successfully! Document indexing started in background.");
+        toastSuccess("AI Agent updated successfully!");
+        await loadAgentDetails(selectedAgentId);
         await loadAgents();
         setViewMode("dashboard");
 
@@ -671,26 +718,26 @@ export function AppAiAgent() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 min-h-[calc(100dvh-3.5rem)] text-slate-800 p-6">
+    <div className="flex flex-col h-full bg-slate-50 min-h-[calc(100dvh-3.5rem)] text-slate-800 p-3 sm:p-4 md:p-6">
       
       {viewMode === "dashboard" ? (
         /* ==================== VIEW 1: DASHBOARD MODE ==================== */
         <div>
           {/* Header */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between border-b border-slate-200 pb-4 mb-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between border-b border-slate-200 pb-4 mb-4 sm:mb-6">
             <div>
-              <h1 className="text-2xl font-bold flex items-center gap-2 text-indigo-900">
-                <LuBot className="h-7 w-7 text-indigo-600" />
+              <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2 text-indigo-900">
+                <LuBot className="h-6 sm:h-7 w-6 sm:w-7 text-indigo-600" />
                 AI Assistant / Agent
               </h1>
-              <p className="text-sm text-slate-500 mt-1 font-medium">Create, customize, and manage your business AI agents.</p>
+              <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium">Create, customize, and manage your business AI agents.</p>
             </div>
 
-            <div className="flex items-center gap-3 mt-4 md:mt-0">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-3 md:mt-0">
               {selectedAgent && (
                 <button
                   onClick={() => setShowSpecsModal(true)}
-                  className="flex items-center gap-2 bg-white hover:bg-slate-100 border border-slate-350 text-indigo-750 font-bold text-xs py-2.5 px-4 rounded-lg shadow-sm transition cursor-pointer animate-none"
+                  className="flex items-center gap-2 bg-white hover:bg-slate-100 border border-slate-350 text-indigo-750 font-bold text-xs py-2 sm:py-2.5 px-3 sm:px-4 rounded-lg shadow-sm transition cursor-pointer"
                 >
                   <LuBot className="h-4 w-4 text-indigo-600" /> View Specs Profile
                 </button>
@@ -699,7 +746,7 @@ export function AppAiAgent() {
           </div>
 
           {/* Tab selectors */}
-          <div className="flex border-b border-slate-200 mb-6 bg-white rounded-t-xl shadow-sm">
+          <div className="flex border-b border-slate-200 mb-4 sm:mb-6 bg-white rounded-t-xl shadow-sm overflow-x-auto scrollbar-thin">
             {[
               { id: "overview", label: "Overview", icon: LuSettings },
               { id: "logs", label: "Leads & Visitor Chats", icon: LuFileText },
@@ -711,13 +758,13 @@ export function AppAiAgent() {
                 <button
                   key={tab.id}
                   onClick={() => setDashboardTab(tab.id)}
-                  className={`flex items-center gap-2 px-6 py-4 border-b-2 font-bold text-sm transition-colors duration-150 ${
+                  className={`flex items-center gap-2 px-4 sm:px-6 py-3 sm:py-4 border-b-2 font-bold text-xs sm:text-sm text-nowrap shrink-0 transition-colors duration-150 ${
                     active
                       ? "border-indigo-600 text-indigo-600 bg-indigo-50/10"
                       : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
                   }`}
                 >
-                  <Icon className={`h-5 w-5 ${active ? "text-indigo-600" : "text-slate-400"}`} />
+                  <Icon className={`h-4.5 sm:h-5 w-4.5 sm:w-5 ${active ? "text-indigo-600" : "text-slate-400"}`} />
                   {tab.label}
                 </button>
               );
@@ -725,7 +772,7 @@ export function AppAiAgent() {
           </div>
 
           {/* Tab Contents */}
-          <div className="bg-white rounded-b-xl p-6 shadow-sm border border-slate-200 border-t-0 min-h-[400px]">
+          <div className="bg-white rounded-b-xl p-4 sm:p-6 shadow-sm border border-slate-200 border-t-0 min-h-[400px]">
             {loading && dashboardTab === "overview" ? (
               <div className="flex items-center justify-center p-12"><p className="text-slate-400 font-bold">Loading agent profile...</p></div>
             ) : (
@@ -1196,19 +1243,19 @@ export function AppAiAgent() {
         /* ==================== VIEW 2: FORM/CREATE/EDIT MODE ==================== */
         <div className="bg-white border border-slate-200 rounded-2xl shadow-md overflow-hidden flex flex-col">
           {/* Header Panel */}
-          <div className="bg-slate-50 border-b border-slate-200 p-5 flex items-center justify-between">
+          <div className="bg-slate-50 border-b border-slate-200 p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               {agents.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setViewMode("dashboard")}
-                  className="flex items-center gap-1 bg-white hover:bg-slate-100 border border-slate-350 text-slate-700 font-bold text-xs py-2 px-3 rounded-lg shadow-xs transition cursor-pointer"
+                  className="flex items-center gap-1 bg-white hover:bg-slate-100 border border-slate-350 text-slate-700 font-bold text-xs py-2 px-3 rounded-lg shadow-xs transition cursor-pointer shrink-0"
                 >
                   <LuArrowLeft className="h-4 w-4" /> Back
                 </button>
               )}
               <div>
-                <h1 className="text-base font-bold text-slate-800 flex items-center gap-1.5">
+                <h1 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-1.5">
                   {formMode === "create" ? "Create New Agent" : "Edit Agent Configuration"}
                 </h1>
                 <p className="text-[10px] text-slate-400 font-semibold tracking-wider uppercase mt-0.5">Define your specialized AI personality</p>
@@ -1217,17 +1264,17 @@ export function AppAiAgent() {
             
             <button
               onClick={handleSaveAgent}
-              className="bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs py-2 px-4.5 rounded-lg shadow-sm transition cursor-pointer"
+              className="w-full sm:w-auto bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs py-2.5 sm:py-2 px-4.5 rounded-lg shadow-sm transition cursor-pointer text-center"
             >
               Save Agent Configuration
             </button>
           </div>
 
           {/* Form Body Split-pane Layout */}
-          <div className="flex min-h-[500px]">
-            {/* Left vertical tabs menu */}
-            <aside className="w-56 border-r border-slate-200 bg-slate-50/50 p-4 space-y-1 shrink-0 flex flex-col justify-between">
-              <div className="space-y-1">
+          <div className="flex flex-col md:flex-row min-h-[500px]">
+            {/* Left horizontal (mobile) / vertical (desktop) tabs menu */}
+            <aside className="w-full md:w-56 border-b md:border-b-0 md:border-r border-slate-200 bg-slate-50/50 p-3 sm:p-4 shrink-0">
+              <div className="flex md:flex-col overflow-x-auto md:overflow-x-visible gap-1.5 pb-2 md:pb-0 scrollbar-thin">
                 {[
                   { id: "message", label: "Message", icon: LuMessageSquare },
                   { id: "info", label: "Info", icon: LuBot },
@@ -1245,13 +1292,13 @@ export function AppAiAgent() {
                       key={item.id}
                       type="button"
                       onClick={() => setFormActiveTab(item.id)}
-                      className={`w-full flex items-center gap-2.5 py-2.5 px-3 rounded-lg font-bold text-xs text-left border-l-4 transition cursor-pointer ${
+                      className={`flex items-center gap-2 py-2 sm:py-2.5 px-3 rounded-lg font-bold text-xs text-left text-nowrap shrink-0 transition cursor-pointer border-b-2 md:border-b-0 md:border-l-4 ${
                         active
                           ? "bg-orange-50 border-orange-500 text-orange-700 bg-orange-500/10"
                           : "border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-800"
                       }`}
                     >
-                      <Icon className="h-4.5 w-4.5 shrink-0" />
+                      <Icon className="h-4 w-4 shrink-0" />
                       {item.label}
                     </button>
                   );
@@ -1260,7 +1307,7 @@ export function AppAiAgent() {
             </aside>
 
             {/* Right form input details pane */}
-            <div className="flex-1 p-8 text-xs text-slate-700 bg-white">
+            <div className="flex-1 p-4 sm:p-6 md:p-8 text-xs text-slate-700 bg-white">
               
               {/* TAB A: MESSAGE CONTENT */}
               {formActiveTab === "message" && (
@@ -1310,15 +1357,14 @@ export function AppAiAgent() {
                     </div>
                     <div>
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Function / Category*</label>
-                      <select
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. calling"
                         value={formCategory}
                         onChange={(e) => setFormCategory(e.target.value)}
                         className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 p-2.5 w-full shadow-xs"
-                      >
-                        <option value="calling">calling (Audio focus)</option>
-                        <option value="sales">sales (Lead Generation focus)</option>
-                        <option value="support">support (Service FAQ focus)</option>
-                      </select>
+                      />
                     </div>
                     <div className="md:col-span-2">
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Short Description</label>
@@ -1410,13 +1456,23 @@ export function AppAiAgent() {
                     </div>
                     <div className="md:col-span-2">
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Voice Provider API Key</label>
-                      <input
-                        type="password"
-                        placeholder="your_elevenlabs_api_key_here"
-                        value={voiceApiKey}
-                        onChange={(e) => setVoiceApiKey(e.target.value)}
-                        className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 p-2.5 w-full shadow-xs"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showVoiceApiKey ? "text" : "password"}
+                          placeholder="Enter Voice API Key..."
+                          value={voiceApiKey}
+                          onChange={(e) => setVoiceApiKey(e.target.value)}
+                          className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 p-2.5 pr-10 w-full shadow-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowVoiceApiKey(prev => !prev)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition cursor-pointer p-1"
+                          title={showVoiceApiKey ? "Hide API Key" : "Show API Key"}
+                        >
+                          {showVoiceApiKey ? <LuEyeOff className="h-4 w-4" /> : <LuEye className="h-4 w-4" />}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1462,13 +1518,23 @@ export function AppAiAgent() {
                     </div>
                     <div>
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Model API Key</label>
-                      <input
-                        type="password"
-                        placeholder="your_api_key_here"
-                        value={sysApiKey}
-                        onChange={(e) => setSysApiKey(e.target.value)}
-                        className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 w-full shadow-xs"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showSysApiKey ? "text" : "password"}
+                          placeholder="Enter Model API Key..."
+                          value={sysApiKey}
+                          onChange={(e) => setSysApiKey(e.target.value)}
+                          className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 pr-10 w-full shadow-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowSysApiKey(prev => !prev)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition cursor-pointer p-1"
+                          title={showSysApiKey ? "Hide API Key" : "Show API Key"}
+                        >
+                          {showSysApiKey ? <LuEyeOff className="h-4 w-4" /> : <LuEye className="h-4 w-4" />}
+                        </button>
+                      </div>
                     </div>
                     <div className="md:col-span-3">
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">System Instruction prompt</label>
@@ -1534,30 +1600,74 @@ export function AppAiAgent() {
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Brand Logo URL</label>
-                      <input
-                        type="url"
-                        placeholder="https://example.com/logo.png"
-                        value={custLogoUrl}
-                        onChange={(e) => setCustLogoUrl(e.target.value)}
-                        className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 w-full shadow-xs"
-                      />
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Brand Logo Image</label>
+                      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                        <input
+                          type="text"
+                          placeholder="e.g. https://domain.com/logo.png"
+                          value={custLogoUrl}
+                          onChange={(e) => setCustLogoUrl(e.target.value)}
+                          className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 flex-1 min-w-0 shadow-xs"
+                        />
+                        <label className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold px-3 py-2.5 rounded-lg transition cursor-pointer shrink-0 flex items-center justify-center gap-1">
+                          <LuUpload className="h-3.5 w-3.5" />
+                          {uploadingLogo ? "Uploading..." : "Upload Image"}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files[0]) {
+                                handleLogoUpload(e.target.files[0]);
+                              }
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                      {custLogoUrl && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <img src={mediaUrl(custLogoUrl)} alt="Logo Preview" className="h-8 w-8 object-contain rounded border border-slate-200 bg-slate-50 p-0.5" />
+                          <span className="text-[10px] text-emerald-600 font-semibold">Logo Uploaded</span>
+                        </div>
+                      )}
                     </div>
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Author Image Avatar URL</label>
-                      <input
-                        type="url"
-                        placeholder="https://example.com/avatar.jpg"
-                        value={custAuthorImage}
-                        onChange={(e) => setCustAuthorImage(e.target.value)}
-                        className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 w-full shadow-xs"
-                      />
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Author Image Avatar</label>
+                      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                        <input
+                          type="text"
+                          placeholder="e.g. https://domain.com/avatar.jpg"
+                          value={custAuthorImage}
+                          onChange={(e) => setCustAuthorImage(e.target.value)}
+                          className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 flex-1 min-w-0 shadow-xs"
+                        />
+                        <label className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold px-3 py-2.5 rounded-lg transition cursor-pointer shrink-0 flex items-center justify-center gap-1">
+                          <LuUpload className="h-3.5 w-3.5" />
+                          {uploadingAvatar ? "Uploading..." : "Upload Image"}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files[0]) {
+                                handleAvatarUpload(e.target.files[0]);
+                              }
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                      {custAuthorImage && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <img src={mediaUrl(custAuthorImage)} alt="Avatar Preview" className="h-8 w-8 object-cover rounded-full border border-slate-200" />
+                          <span className="text-[10px] text-emerald-600 font-semibold">Avatar Uploaded</span>
+                        </div>
+                      )}
                     </div>
                     <div>
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Chat Link Path</label>
                       <input
-                        type="url"
-                        placeholder="https://example.com/chat/property-agent"
+                        type="text"
+                        placeholder="e.g. /chat/property-agent"
                         value={custChatLink}
                         onChange={(e) => setCustChatLink(e.target.value)}
                         className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 w-full shadow-xs"
