@@ -199,22 +199,176 @@ export function AppAiAgent() {
   const [cardTemplate, setCardTemplate] = useState("gold"); // "gold" | "yellow" | "wave"
   const [cardSide, setCardSide] = useState("front"); // "front" | "back"
 
-  function handleShareCard(agentId) {
-    const cardUrl = `${window.location.origin}/agent-chat?id=${agentId || selectedAgentId}`;
-    if (navigator.share) {
-      navigator.share({
-        title: `${user?.name || "CEO"} - AI Agent Visiting Card`,
-        text: `Connect & chat with ${user?.name || "CEO"}'s AI Assistant:`,
-        url: cardUrl
-      }).catch(() => {});
-    } else {
-      navigator.clipboard.writeText(cardUrl);
-      toastSuccess("Visiting Card link copied to clipboard! Share on WhatsApp.");
-    }
+  function getCardCanvasBlob(side, cardData) {
+    return new Promise((resolve) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1050;
+      canvas.height = 600;
+      const ctx = canvas.getContext("2d");
+
+      // Draw background gradient based on template
+      const grad = ctx.createLinearGradient(0, 0, 1050, 600);
+      if (cardData.template === "gold") {
+        grad.addColorStop(0, "#020617");
+        grad.addColorStop(0.5, "#0f172a");
+        grad.addColorStop(1, "#451a03");
+      } else if (cardData.template === "yellow") {
+        grad.addColorStop(0, "#facc15");
+        grad.addColorStop(0.5, "#eab308");
+        grad.addColorStop(1, "#ca8a04");
+      } else {
+        grad.addColorStop(0, "#090d16");
+        grad.addColorStop(0.5, "#1e1b4b");
+        grad.addColorStop(1, "#312e81");
+      }
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 1050, 600);
+
+      // Gold Border
+      ctx.strokeStyle = cardData.template === "yellow" ? "#78350f" : "#f59e0b";
+      ctx.lineWidth = 10;
+      ctx.strokeRect(15, 15, 1020, 570);
+
+      if (side === "front") {
+        // Executive Pass Badge
+        ctx.fillStyle = cardData.template === "yellow" ? "#78350f" : "#facc15";
+        ctx.font = "bold 26px sans-serif";
+        ctx.fillText("EXECUTIVE PASS", 60, 80);
+
+        // Name
+        ctx.fillStyle = cardData.template === "yellow" ? "#0f172a" : "#ffffff";
+        ctx.font = "bold 52px sans-serif";
+        ctx.fillText(cardData.userName, 60, 160);
+
+        // Title
+        ctx.fillStyle = cardData.template === "yellow" ? "#451a03" : "#fbbf24";
+        ctx.font = "bold 32px sans-serif";
+        ctx.fillText("CEO & FOUNDER", 60, 215);
+
+        // Subtitle
+        ctx.fillStyle = cardData.template === "yellow" ? "#1e293b" : "#cbd5e1";
+        ctx.font = "24px sans-serif";
+        ctx.fillText("DIIN TECHNOLOGIES", 60, 265);
+
+        // Line accent
+        ctx.fillStyle = "#f59e0b";
+        ctx.fillRect(60, 490, 930, 4);
+
+        // Footer
+        ctx.fillStyle = cardData.template === "yellow" ? "#334155" : "#94a3b8";
+        ctx.font = "20px sans-serif";
+        ctx.fillText("POWERED BY MAGNIFAI OS • OFFICIAL DIGITAL PASS", 60, 535);
+
+        canvas.toBlob((blob) => resolve(blob), "image/png");
+      } else {
+        // Back Side with QR Code
+        ctx.fillStyle = cardData.template === "yellow" ? "#0f172a" : "#ffffff";
+        ctx.font = "bold 40px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("SCAN TO CHAT & VOICE CALL INSTANT", 525, 90);
+
+        const qrImg = new Image();
+        qrImg.crossOrigin = "anonymous";
+        qrImg.onload = () => {
+          ctx.drawImage(qrImg, 385, 130, 280, 280);
+
+          ctx.fillStyle = cardData.template === "yellow" ? "#1e293b" : "#cbd5e1";
+          ctx.font = "20px sans-serif";
+          ctx.fillText(cardData.chatLink, 525, 470);
+
+          ctx.fillStyle = "#f59e0b";
+          ctx.font = "bold 20px sans-serif";
+          ctx.fillText("POWERED BY MAGNIFAI OS", 525, 525);
+
+          canvas.toBlob((blob) => resolve(blob), "image/png");
+        };
+        qrImg.onerror = () => {
+          ctx.fillStyle = cardData.template === "yellow" ? "#1e293b" : "#cbd5e1";
+          ctx.font = "20px sans-serif";
+          ctx.fillText(cardData.chatLink, 525, 300);
+
+          canvas.toBlob((blob) => resolve(blob), "image/png");
+        };
+        qrImg.src = cardData.qrUrl;
+      }
+    });
   }
 
-  function handleDownloadCard() {
-    window.print();
+  async function handleShareCard(agentId) {
+    const userName = user?.name || "CEO";
+    const targetAgentId = agentId || selectedAgentId;
+    const cardUrl = `${window.location.origin}/agent-chat?id=${targetAgentId}`;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(cardUrl)}`;
+    const cardData = { userName, template: cardTemplate, qrUrl, chatLink: cardUrl };
+
+    try {
+      // 1. Generate Front & Back Blobs
+      const frontBlob = await getCardCanvasBlob("front", cardData);
+      const backBlob = await getCardCanvasBlob("back", cardData);
+
+      const cleanName = userName.replace(/\s+/g, "_");
+      const frontFile = new File([frontBlob], `Visiting_Card_Front_${cleanName}.png`, { type: "image/png" });
+      const backFile = new File([backBlob], `Visiting_Card_Back_${cleanName}.png`, { type: "image/png" });
+
+      // 2. Try native file sharing with images + link
+      if (navigator.canShare && navigator.canShare({ files: [frontFile, backFile] })) {
+        await navigator.share({
+          title: `${userName} - AI Agent Visiting Card`,
+          text: `Connect & chat with ${userName}'s AI Assistant:`,
+          url: cardUrl,
+          files: [frontFile, backFile]
+        });
+        toastSuccess("Visiting Card Front/Back Images & URL shared!");
+        return;
+      }
+    } catch (e) {
+      console.warn("Native image file share dismissed or unsupported", e);
+    }
+
+    // Fallback if browser doesn't support direct image file sharing in Web Share API
+    const shareMsg = `🎴 *${userName}'s Official AI Agent Visiting Card*\n\nConnect & chat with ${userName}'s AI Assistant directly here:\n👇\n${cardUrl}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `${userName} - AI Agent Visiting Card`,
+          text: `Connect & chat with ${userName}'s AI Assistant:`,
+          url: cardUrl
+        });
+        toastSuccess("Visiting Card link shared!");
+        return;
+      } catch (err) {}
+    }
+
+    navigator.clipboard.writeText(shareMsg);
+    toastSuccess("Visiting Card details & Chat URL copied! Ready to paste & share on WhatsApp.");
+  }
+
+  async function downloadCardSide(side, cardData) {
+    const blob = await getCardCanvasBlob(side, cardData);
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.download = `Visiting_Card_${side.toUpperCase()}_${cardData.userName.replace(/\s+/g, "_")}.png`;
+    link.href = url;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  async function handleDownloadCard() {
+    const userName = user?.name || "CEO";
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(
+      `${window.location.origin}/agent-chat?id=${selectedAgentId}`
+    )}`;
+    const chatLink = `${window.location.origin}/agent-chat?id=${selectedAgentId}`;
+    const cardData = { userName, template: cardTemplate, qrUrl, chatLink };
+
+    await downloadCardSide("front", cardData);
+
+    setTimeout(async () => {
+      await downloadCardSide("back", cardData);
+      toastSuccess("Downloaded Front & Back PNG Cards directly to your Downloads folder! 🎴");
+    }, 500);
   }
 
   // Compute grouped contact list by identity key (Device ID > Phone > Real Name)
@@ -1807,9 +1961,9 @@ export function AppAiAgent() {
                                   type="button"
                                   onClick={handleDownloadCard}
                                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-1.5 px-3 rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                                  title="Download / Print Both Sides"
+                                  title="Download Front & Back PNG Cards directly"
                                 >
-                                  <LuPrinter className="h-3.5 w-3.5" /> Download Both Sides
+                                  <LuDownload className="h-3.5 w-3.5" /> Download Both Sides
                                 </button>
                               </div>
                             </div>
@@ -1867,9 +2021,14 @@ export function AppAiAgent() {
 
                             return (
                               <div className="space-y-3">
-                                {/* CARD VIEW CONTAINER */}
-                                <div className="w-full rounded-2xl shadow-xl overflow-hidden transition-all duration-300 hover:shadow-2xl border border-slate-200 relative">
-                                  
+                                {/* CARD VIEW CONTAINER (Clickable on Desktop to open chatbot in a new tab) */}
+                                <a
+                                  href={chatLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="block w-full rounded-2xl shadow-xl overflow-hidden transition-all duration-300 hover:shadow-2xl hover:scale-[1.01] border border-slate-200 relative cursor-pointer group"
+                                  title="Click card to test chatbot (opens in a new tab)"
+                                >
                                   {/* TEMPLATE 1: ROYAL DARK GOLD GEOMETRIC PASS (Reference Image 2 Style) */}
                                   {cardTemplate === "gold" && (
                                     <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950/90 text-white min-h-[230px] p-0 relative flex flex-col justify-between border-2 border-amber-500/50 shadow-2xl overflow-hidden">
@@ -2041,7 +2200,7 @@ export function AppAiAgent() {
                                       )}
                                     </div>
                                   )}
-                                </div>
+                                </a>
                               </div>
                             );
                           })()}

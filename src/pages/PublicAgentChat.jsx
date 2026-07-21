@@ -718,11 +718,39 @@ export function PublicAgentChat() {
   const brandColor = agent?.customization?.color || "#4f46e5";
 
   if (loadingAgent) {
+    const assistantName = agent?.name || "Vijay AI Assistant";
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <LuBot className="h-10 w-10 text-indigo-600 animate-bounce mx-auto mb-3" />
-          <p className="text-sm font-semibold text-slate-500">Connecting to agent...</p>
+      <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-950 text-white p-6 z-50 overflow-hidden">
+        {/* Ambient background glow */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none animate-pulse"></div>
+
+        <div className="relative z-10 text-center space-y-5 max-w-sm mx-auto">
+          {/* Glowing MagnifAI Logo */}
+          <div className="relative inline-block">
+            <div className="absolute -inset-2 rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 opacity-75 blur-md animate-pulse"></div>
+            <img
+              src="/MagnifAI logo.jpeg"
+              alt="MagnifAI Logo"
+              className="relative h-20 w-20 sm:h-24 sm:w-24 rounded-full object-cover border-2 border-indigo-400/40 shadow-2xl mx-auto"
+            />
+          </div>
+
+          {/* Dynamic Loading Message */}
+          <div className="space-y-1.5">
+            <h3 className="text-base sm:text-lg font-bold text-slate-100 tracking-wide">
+              Connecting to <span className="text-indigo-400 font-extrabold">{assistantName}</span>...
+            </h3>
+            <p className="text-xs text-slate-400 font-medium">
+              Initializing secure AI assistant session
+            </p>
+          </div>
+
+          {/* Animated Dots */}
+          <div className="flex justify-center items-center gap-2 pt-1">
+            <span className="w-2.5 h-2.5 bg-indigo-500 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+            <span className="w-2.5 h-2.5 bg-purple-500 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+            <span className="w-2.5 h-2.5 bg-pink-500 rounded-full animate-bounce"></span>
+          </div>
         </div>
       </div>
     );
@@ -742,29 +770,29 @@ export function PublicAgentChat() {
   return (
     <div className="fixed inset-0 flex flex-col h-[100dvh] w-full bg-slate-950 text-slate-100 font-sans overflow-hidden">
       
-      {/* Brand Header */}
-      <header className="sticky top-0 bg-slate-900/95 backdrop-blur-md text-white px-3 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between border-b border-slate-800/80 shadow-lg shrink-0 z-30">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-full overflow-hidden border-2 border-indigo-500/50 bg-white flex items-center justify-center shadow-md shrink-0">
-            {agent?.customization?.author_image_url || agent?.customization?.logo_url ? (
-              <img src={mediaUrl(agent.customization.author_image_url || agent.customization.logo_url)} alt="Avatar" className="h-full w-full object-cover" />
-            ) : (
-              <LuBot className="h-5 w-5 sm:h-6 sm:w-6 text-indigo-600" />
-            )}
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-xs sm:text-base font-extrabold truncate max-w-[140px] xs:max-w-[180px] sm:max-w-md text-slate-100">{agent?.name || "AI Support Agent"}</h1>
-            <div className="flex items-center gap-1.5 text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-wider truncate">
-              <span className="flex items-center gap-1 text-emerald-400 shrink-0">
-                <span className="h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-emerald-500 animate-ping inline-block"></span> Online Assistant
-              </span>
-              <span className="hidden sm:inline">• {agent?.category || "Interactive"} Chatroom</span>
+      {/* Brand Header (Only shown when activeScreenMode !== "welcome") */}
+      {activeScreenMode !== "welcome" && (
+        <header className="sticky top-0 bg-slate-900/95 backdrop-blur-md text-white px-3 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between border-b border-slate-800/80 shadow-lg shrink-0 z-30 transition-all duration-300 animate-fade-in">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-full overflow-hidden border-2 border-indigo-500/50 bg-white flex items-center justify-center shadow-md shrink-0">
+              {agent?.customization?.author_image_url || agent?.customization?.logo_url ? (
+                <img src={mediaUrl(agent.customization.author_image_url || agent.customization.logo_url)} alt="Avatar" className="h-full w-full object-cover" />
+              ) : (
+                <img src="/bot-avatar.png" alt="Bot Logo" className="h-full w-full object-cover" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-xs sm:text-base font-extrabold truncate max-w-[140px] xs:max-w-[180px] sm:max-w-md text-slate-100">{agent?.name || "AI Support Agent"}</h1>
+              <div className="flex items-center gap-1.5 text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-wider truncate">
+                <span className="flex items-center gap-1 text-emerald-400 shrink-0">
+                  <span className="h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-emerald-500 animate-ping inline-block"></span> Online Assistant
+                </span>
+                <span className="hidden sm:inline">• {agent?.category || "Interactive"} Chatroom</span>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          {activeScreenMode !== "welcome" && (
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => {
@@ -776,14 +804,14 @@ export function PublicAgentChat() {
             >
               <LuX className="w-4 h-4" />
             </button>
-          )}
-          {isPlayingAudio && (
-            <span className="text-[9px] sm:text-[10px] bg-indigo-600 text-white font-bold px-2.5 py-1 rounded-full flex items-center gap-1 animate-pulse shadow-md">
-              <LuVolume2 className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> <span className="hidden xs:inline">Agent</span> Speaking...
-            </span>
-          )}
-        </div>
-      </header>
+            {isPlayingAudio && (
+              <span className="text-[9px] sm:text-[10px] bg-indigo-600 text-white font-bold px-2.5 py-1 rounded-full flex items-center gap-1 animate-pulse shadow-md">
+                <LuVolume2 className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> <span className="hidden xs:inline">Agent</span> Speaking...
+              </span>
+            )}
+          </div>
+        </header>
+      )}
 
       {/* Main Container */}
       <main className={`flex-1 min-h-0 flex flex-col w-full mx-auto shadow-2xl overflow-hidden relative transition-all duration-300 ${
@@ -814,14 +842,14 @@ export function PublicAgentChat() {
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     />
                   ) : (
-                    <LuBot className="w-16 h-16 text-indigo-400" />
+                    <img src="/bot-avatar.png" alt="Bot Logo" className="w-full h-full object-cover" />
                   )}
                 </div>
               </div>
 
               {/* Bot icon badge attached at bottom center */}
-              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-10 h-10 rounded-full bg-slate-900 border-2 border-indigo-500/80 shadow-lg shadow-indigo-500/50 flex items-center justify-center z-20">
-                <LuBot className="w-4 h-4 text-indigo-400 animate-pulse" />
+              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-10 h-10 rounded-full bg-slate-900 border-2 border-indigo-500/80 shadow-lg shadow-indigo-500/50 flex items-center justify-center z-20 overflow-hidden">
+                <img src="/bot-avatar.png" alt="Bot Badge" className="w-full h-full object-cover scale-[1.7] transform" />
               </div>
             </div>
 
@@ -895,7 +923,7 @@ export function PublicAgentChat() {
                 {agent?.customization?.author_image_url || agent?.customization?.logo_url ? (
                   <img src={mediaUrl(agent.customization.author_image_url || agent.customization.logo_url)} alt="Avatar" className="h-full w-full object-cover" />
                 ) : (
-                  <LuBot className="h-8 w-8 text-indigo-400" />
+                  <img src="/bot-avatar.png" alt="Bot Logo" className="h-full w-full object-cover" />
                 )}
               </div>
               <h2 className="text-lg font-extrabold text-slate-100">Verify Identity to Chat</h2>
@@ -1001,7 +1029,7 @@ export function PublicAgentChat() {
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <LuBot className={`h-10 w-10 text-white ${chatLoading ? "animate-bounce" : ""}`} />
+                    <img src="/bot-avatar.png" alt="Bot Logo" className={`w-16 h-16 object-cover ${chatLoading ? "animate-bounce" : ""}`} />
                   )}
                 </div>
               </div>
@@ -1115,8 +1143,8 @@ export function PublicAgentChat() {
                 );
               })}
               {chatLoading && (
-                <div className="flex items-center gap-2 text-xs text-indigo-400 font-bold animate-pulse p-2">
-                  <LuBot className="h-4 w-4" /> Thinking response...
+                <div className="flex items-center gap-2.5 text-xs text-indigo-400 font-bold animate-pulse p-2">
+                  <img src="/bot-avatar.png" alt="Bot" className="h-5 w-5 rounded-full object-cover" /> Thinking response...
                 </div>
               )}
               <div ref={messagesEndRef} />
