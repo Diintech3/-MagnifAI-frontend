@@ -15,8 +15,23 @@ import {
   LuSmartphone,
   LuStar,
   LuMessageCircle,
+  LuChevronRight,
   LuX
 } from "react-icons/lu";
+
+function getContrastColor(hexColor) {
+  if (!hexColor || typeof hexColor !== "string") return "#ffffff";
+  let hex = hexColor.replace("#", "");
+  if (hex.length === 3) {
+    hex = hex.split("").map(c => c + c).join("");
+  }
+  if (hex.length !== 6) return "#ffffff";
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  return yiq >= 128 ? "#090d16" : "#ffffff";
+}
 
 export function PublicAgentChat() {
   const [searchParams] = useSearchParams();
@@ -24,6 +39,9 @@ export function PublicAgentChat() {
 
   const [agent, setAgent] = useState(null);
   const [loadingAgent, setLoadingAgent] = useState(true);
+
+  // Screen Mode: "welcome" | "chat" | "voice"
+  const [activeScreenMode, setActiveScreenMode] = useState("welcome");
 
   // Visitor Details Form
   const [isRegistered, setIsRegistered] = useState(true);
@@ -307,11 +325,31 @@ export function PublicAgentChat() {
       if (!res.ok) throw new Error("Request failed");
       const data = await res.json();
 
-      setMessages(prev => [...prev, { role: "assistant", content: data.answer }]);
+      const rawAnswer = data.answer || "";
+      // Split main answer and follow-up lead capture question into 2 distinct messages
+      const match = rawAnswer.match(/(?:\r?\n\r?\n|\r?\n|\.\s+)(?=(?:By the way|Also,|May I know|Could you (?:please )?share|What is your name|What's your name|Please share your)[,\?\s])/i);
+      let parts = [rawAnswer];
+      if (match && match.index > 0) {
+        const mainAnswer = rawAnswer.substring(0, match.index).trim();
+        const followUp = rawAnswer.substring(match.index).trim();
+        if (mainAnswer && followUp) {
+          parts = [mainAnswer, followUp];
+        }
+      }
+
+      if (parts.length > 1) {
+        parts.forEach((partText, index) => {
+          setTimeout(() => {
+            setMessages(prev => [...prev, { role: "assistant", content: partText }]);
+          }, index * 400);
+        });
+      } else {
+        setMessages(prev => [...prev, { role: "assistant", content: rawAnswer }]);
+      }
 
       if (isVoicePageOpenRef.current) {
-        if (data.answer) {
-          playSpeech(data.answer);
+        if (rawAnswer) {
+          playSpeech(rawAnswer);
         } else {
           startRecording();
         }
@@ -702,10 +740,10 @@ export function PublicAgentChat() {
   }
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-slate-950 text-slate-100 font-sans overflow-hidden">
+    <div className="fixed inset-0 flex flex-col h-[100dvh] w-full bg-slate-950 text-slate-100 font-sans overflow-hidden">
       
       {/* Brand Header */}
-      <header className="bg-slate-900/90 backdrop-blur-md text-white px-3 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between border-b border-slate-800/80 shadow-lg shrink-0 z-20">
+      <header className="sticky top-0 bg-slate-900/95 backdrop-blur-md text-white px-3 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between border-b border-slate-800/80 shadow-lg shrink-0 z-30">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-full overflow-hidden border-2 border-indigo-500/50 bg-white flex items-center justify-center shadow-md shrink-0">
             {agent?.customization?.author_image_url || agent?.customization?.logo_url ? (
@@ -726,6 +764,19 @@ export function PublicAgentChat() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {activeScreenMode !== "welcome" && (
+            <button
+              type="button"
+              onClick={() => {
+                setActiveScreenMode("welcome");
+                setIsVoicePageOpen(false);
+              }}
+              className="p-1.5 text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-800 border border-slate-700 rounded-full flex items-center justify-center transition cursor-pointer shadow-sm hover:scale-105"
+              title="Close"
+            >
+              <LuX className="w-4 h-4" />
+            </button>
+          )}
           {isPlayingAudio && (
             <span className="text-[9px] sm:text-[10px] bg-indigo-600 text-white font-bold px-2.5 py-1 rounded-full flex items-center gap-1 animate-pulse shadow-md">
               <LuVolume2 className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> <span className="hidden xs:inline">Agent</span> Speaking...
@@ -734,9 +785,109 @@ export function PublicAgentChat() {
         </div>
       </header>
 
-      {/* Main Container (Spacious Responsive Full Desktop Width) */}
-      <main className="flex-1 flex flex-col justify-center max-w-4xl lg:max-w-5xl w-full mx-auto bg-slate-900/40 shadow-2xl overflow-hidden border-x border-slate-800/60 relative">
-        {!isRegistered ? (
+      {/* Main Container */}
+      <main className={`flex-1 min-h-0 flex flex-col w-full mx-auto shadow-2xl overflow-hidden relative transition-all duration-300 ${
+        activeScreenMode === "welcome" ? "bg-slate-950" : "max-w-4xl lg:max-w-5xl bg-slate-900/40 border-x border-slate-800/60"
+      }`}>
+        {activeScreenMode === "welcome" ? (
+          /* ==================== MagnifAI Signature Dark Glassmorphic QR Landing ==================== */
+          <div className="flex-1 flex flex-col justify-center items-center p-6 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 relative overflow-y-auto min-h-0 select-none no-scrollbar">
+            
+            {/* Ambient Background Glowing Orbs */}
+            <div className="absolute -top-24 -left-24 w-80 h-80 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none animate-pulse"></div>
+            <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-purple-600/20 rounded-full blur-3xl pointer-events-none animate-pulse"></div>
+            <div className="absolute inset-0 bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:24px_24px] opacity-20 pointer-events-none"></div>
+
+            {/* Glowing CEO Avatar Container with Glowing Aura Backdrop */}
+            <div className="relative mb-5 z-10 group">
+              {/* Outer Glowing Backdrop Aura */}
+              <div className="absolute -inset-3 bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 rounded-full blur-xl opacity-70 animate-pulse pointer-events-none"></div>
+              <div className="absolute -inset-1.5 bg-gradient-to-r from-cyan-500 via-indigo-500 to-purple-500 rounded-full blur-md opacity-80 pointer-events-none"></div>
+
+              {/* Main Avatar Frame */}
+              <div className="w-40 h-40 sm:w-48 sm:h-48 rounded-full p-1 bg-gradient-to-tr from-indigo-400 via-purple-400 to-pink-400 shadow-2xl shadow-indigo-500/40 flex items-center justify-center relative z-10">
+                <div className="w-full h-full rounded-full overflow-hidden border-2 border-slate-900 bg-slate-900 flex items-center justify-center">
+                  {agent?.customization?.author_image_url || agent?.customization?.logo_url ? (
+                    <img
+                      src={mediaUrl(agent.customization.author_image_url || agent.customization.logo_url)}
+                      alt="Avatar"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    />
+                  ) : (
+                    <LuBot className="w-16 h-16 text-indigo-400" />
+                  )}
+                </div>
+              </div>
+
+              {/* Bot icon badge attached at bottom center */}
+              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-10 h-10 rounded-full bg-slate-900 border-2 border-indigo-500/80 shadow-lg shadow-indigo-500/50 flex items-center justify-center z-20">
+                <LuBot className="w-4 h-4 text-indigo-400 animate-pulse" />
+              </div>
+            </div>
+
+            {/* Typography */}
+            <div className="text-center max-w-sm mb-6 space-y-1 z-10">
+              <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
+                Hello !
+              </h2>
+              <h1 className="text-lg sm:text-xl font-extrabold text-slate-100">
+                I am <span className="text-indigo-400 drop-shadow-[0_0_12px_rgba(99,102,241,0.6)]">{agent?.name || "Vijay AI Assistant"}</span>
+              </h1>
+              <p className="text-[11px] sm:text-xs text-slate-400 font-medium leading-relaxed pt-1.5 px-2">
+                {agent?.customization?.welcome_description || "I am here to answer your questions, provide smart solutions and help you get things done."}
+              </p>
+            </div>
+
+            {/* Sleek Compact Action Cards */}
+            <div className="w-full max-w-[280px] sm:max-w-[320px] space-y-2.5 z-10">
+              {/* Chat Button (Compact Vibrant Indigo/Purple Gradient) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveScreenMode("chat");
+                  setIsVoicePageOpen(false);
+                }}
+                className="w-full bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:brightness-110 active:scale-[0.99] text-white py-2.5 px-3.5 rounded-xl shadow-lg shadow-indigo-600/30 border border-indigo-400/30 flex items-center justify-between transition-all duration-200 cursor-pointer group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-inner">
+                    <LuMessageCircle className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="font-extrabold text-sm leading-tight">Chat</h3>
+                    <p className="text-[10px] text-indigo-100 font-medium">Start a conversation</p>
+                  </div>
+                </div>
+                <div className="w-7 h-7 rounded-full bg-white text-indigo-600 flex items-center justify-center shadow group-hover:translate-x-0.5 transition-transform">
+                  <LuChevronRight className="w-4 h-4 font-bold" />
+                </div>
+              </button>
+
+              {/* Talk Button (Compact Glassmorphic Dark Card) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveScreenMode("voice");
+                  setIsVoicePageOpen(true);
+                }}
+                className="w-full bg-slate-900/80 backdrop-blur-xl border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-800/90 active:scale-[0.99] text-slate-100 py-2.5 px-3.5 rounded-xl shadow-lg shadow-slate-950/60 flex items-center justify-between transition-all duration-200 cursor-pointer group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+                    <LuPhone className="w-4 h-4 text-indigo-400" />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="font-extrabold text-sm text-slate-100 leading-tight">Talk</h3>
+                    <p className="text-[10px] text-slate-400 font-medium">Talk to me</p>
+                  </div>
+                </div>
+                <div className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 group-hover:text-indigo-400 group-hover:bg-indigo-500/20 flex items-center justify-center group-hover:translate-x-0.5 transition-all">
+                  <LuChevronRight className="w-4 h-4 font-bold" />
+                </div>
+              </button>
+            </div>
+          </div>
+        ) : !isRegistered ? (
           /* Registration Form */
           <div className="p-6 space-y-6 max-w-md mx-auto w-full my-auto">
             <div className="text-center">
@@ -929,32 +1080,40 @@ export function PublicAgentChat() {
           </div>
         ) : (
           /* ==================== Conversational Chat Portal ==================== */
-          <div className="flex-1 flex flex-col justify-between h-full bg-slate-900 text-slate-200 text-xs relative overflow-hidden">
+          <div className="flex-1 min-h-0 flex flex-col justify-between bg-slate-900 text-slate-200 text-sm md:text-base relative overflow-hidden">
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 max-h-[calc(100vh-8.5rem)] no-scrollbar scrollbar-none">
-              {messages.map((chat, idx) => (
-                <div key={idx} className={`flex flex-col ${chat.role === "user" ? "items-end" : "items-start"}`}>
-                  <div
-                    style={chat.role === "user" ? { backgroundColor: brandColor, color: "#fff" } : { backgroundColor: "#1e293b", color: "#f1f5f9", borderWidth: "1px", borderColor: "#334155" }}
-                    className={`max-w-2xl px-5 py-3.5 rounded-2xl shadow-md leading-relaxed text-xs md:text-sm ${
-                      chat.role === "user" ? "rounded-tr-xs" : "rounded-tl-xs"
-                    }`}
-                  >
-                    <div className="prose prose-invert prose-xs max-w-none [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_li]:my-0.5 [&_strong]:text-indigo-300 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-xs font-normal">
-                      <ReactMarkdown>{chat.content}</ReactMarkdown>
-                    </div>
-                  </div>
-                  {chat.role === "assistant" && (
-                    <button
-                      onClick={() => playSpeech(chat.content)}
-                      className="text-slate-400 hover:text-indigo-400 mt-1.5 flex items-center gap-1 text-[10px] font-bold transition cursor-pointer px-1 py-0.5"
-                      title="Play Audio"
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-4.5 no-scrollbar scrollbar-none">
+              {messages.map((chat, idx) => {
+                const isUser = chat.role === "user";
+                const userTextColor = getContrastColor(brandColor);
+                const textColor = isUser ? userTextColor : "#f1f5f9";
+                return (
+                  <div key={idx} className={`flex flex-col ${isUser ? "items-end" : "items-start"} transition-all duration-300 transform animate-fade-in`}>
+                    <div
+                      style={isUser ? { backgroundColor: brandColor, color: textColor } : { backgroundColor: "#1e293b", color: textColor, borderWidth: "1px", borderColor: "#334155" }}
+                      className={`max-w-3xl px-4.5 py-2.5 sm:px-5 sm:py-3 rounded-2xl shadow-md leading-normal text-sm sm:text-base font-medium ${
+                        isUser ? "rounded-tr-xs" : "rounded-tl-xs"
+                      }`}
                     >
-                      <LuVolume2 className="h-3.5 w-3.5 text-indigo-400" /> Read aloud
-                    </button>
-                  )}
-                </div>
-              ))}
+                      <div
+                        style={{ color: textColor }}
+                        className={`prose prose-sm max-w-none text-sm sm:text-base leading-normal [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_li]:my-0.5 [&_strong]:text-inherit [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm font-medium ${isUser ? "" : "prose-invert"}`}
+                      >
+                        <ReactMarkdown>{chat.content}</ReactMarkdown>
+                      </div>
+                    </div>
+                    {chat.role === "assistant" && (
+                      <button
+                        onClick={() => playSpeech(chat.content)}
+                        className="text-slate-400 hover:text-indigo-400 mt-1.5 flex items-center gap-1.5 text-xs font-bold transition cursor-pointer px-1 py-0.5"
+                        title="Play Audio"
+                      >
+                        <LuVolume2 className="h-4 w-4 text-indigo-400" /> Read aloud
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
               {chatLoading && (
                 <div className="flex items-center gap-2 text-xs text-indigo-400 font-bold animate-pulse p-2">
                   <LuBot className="h-4 w-4" /> Thinking response...
@@ -1000,13 +1159,13 @@ export function PublicAgentChat() {
                 if (availableFaqs.length === 0) return null;
 
                 return (
-                  <div className="flex gap-1.5 overflow-x-auto pb-1 max-w-full no-scrollbar scrollbar-none snap-x touch-pan-x">
+                  <div className="flex gap-2 overflow-x-auto pb-1 max-w-full no-scrollbar scrollbar-none snap-x touch-pan-x">
                     {availableFaqs.map((qa, idx) => (
                       <button
                         key={idx}
                         type="button"
                         onClick={() => sendTextMessage(qa.q)}
-                        className={`shrink-0 bg-slate-800/90 hover:bg-indigo-600 hover:text-white border border-slate-700/80 text-[10px] sm:text-[11px] font-bold text-slate-300 px-3 py-1.5 rounded-full transition-all cursor-pointer shadow-2xs hover:scale-[1.02] snap-start ${
+                        className={`shrink-0 bg-slate-800/90 hover:bg-indigo-600 hover:text-white border border-slate-700/80 text-xs sm:text-sm font-semibold text-slate-200 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-xl transition-all duration-200 cursor-pointer shadow-sm hover:scale-[1.02] active:scale-[0.98] snap-start ${
                           idx >= 3 ? "hidden md:inline-block" : "inline-block"
                         }`}
                       >
@@ -1035,7 +1194,7 @@ export function PublicAgentChat() {
                   placeholder="Ask any question..."
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
-                  className="flex-1 bg-transparent text-slate-100 placeholder-slate-500 text-xs md:text-sm px-2 sm:px-3 py-1.5 sm:py-2 focus:outline-none min-w-0"
+                  className="flex-1 bg-transparent text-slate-100 placeholder-slate-500 text-sm sm:text-base px-2 sm:px-3 py-1.5 sm:py-2 focus:outline-none min-w-0 font-medium"
                   disabled={chatLoading}
                 />
 

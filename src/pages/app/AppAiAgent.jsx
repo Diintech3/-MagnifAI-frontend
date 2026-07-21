@@ -1390,7 +1390,21 @@ export function AppAiAgent() {
                                       {historyLoading ? (
                                         <p className="text-xs text-slate-400 text-center py-12">Loading messages...</p>
                                       ) : chatHistory.length > 0 ? (
-                                        chatHistory.map((chat, idx) => {
+                                        chatHistory.flatMap((chat) => {
+                                          if (chat.role !== "assistant" || !chat.content) return [chat];
+                                          const match = chat.content.match(/(?:\r?\n\r?\n|\r?\n|\.\s+)(?=(?:By the way|Also,|May I know|Could you (?:please )?share|What is your name|What's your name|Please share your)[,\?\s])/i);
+                                          if (match && match.index > 0) {
+                                            const mainAnswer = chat.content.substring(0, match.index).trim();
+                                            const followUp = chat.content.substring(match.index).trim();
+                                            if (mainAnswer && followUp) {
+                                              return [
+                                                { ...chat, content: mainAnswer },
+                                                { ...chat, content: followUp }
+                                              ];
+                                            }
+                                          }
+                                          return [chat];
+                                        }).map((chat, idx) => {
                                           const msgKey = `${selectedSession.session_id}_${idx}`;
                                           const currentEval = evaluations[msgKey];
                                           return (
