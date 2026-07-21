@@ -12,7 +12,10 @@ import {
   LuSend,
   LuUser,
   LuPhone,
-  LuSmartphone
+  LuSmartphone,
+  LuStar,
+  LuMessageCircle,
+  LuX
 } from "react-icons/lu";
 
 export function PublicAgentChat() {
@@ -30,10 +33,19 @@ export function PublicAgentChat() {
   const [deviceId, setDeviceId] = useState("");
   const [deviceName, setDeviceName] = useState("");
 
+  // Action Button & Feedback states
+  const [activeActionButton, setActiveActionButton] = useState(null);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackRating, setFeedbackRating] = useState(5);
+  const [feedbackComment, setFeedbackComment] = useState("");
+  const [feedbackEmail, setFeedbackEmail] = useState("");
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+
   // Chat States
   const [messages, setMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const [askedQuestions, setAskedQuestions] = useState([]);
 
   // Audio & STT WebSocket States
   const [isRecording, setIsRecording] = useState(false);
@@ -56,6 +68,7 @@ export function PublicAgentChat() {
   const sendingRef = useRef(false);
 
   // Background media stream / Web Audio API refs for Hands-free Interruption
+  const wsFailedRef = useRef(false);
   const mediaStreamRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
@@ -136,17 +149,93 @@ export function PublicAgentChat() {
     };
   }, [agentId]);
 
+  // Restore visitor chat history from server on load (GET /api/agents/:id/public-history)
   useEffect(() => {
-    // Add Welcome message on load
-    if (isRegistered && agent) {
-      setMessages([
-        {
-          role: "assistant",
-          content: agent.starting_message || `Hello! I am your AI assistant. How can I help you today?`
+    async function restorePublicHistory() {
+      if (!agentId || !sessionId || !deviceId) return;
+      const apiBase = import.meta.env.VITE_API_BASE_URL || "";
+      try {
+        const res = await fetch(`${apiBase}/api/agents/${agentId}/public-history?device_id=${encodeURIComponent(deviceId)}&session_id=${encodeURIComponent(sessionId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.messages && data.messages.length > 0) {
+            setMessages(data.messages);
+            return;
+          }
         }
-      ]);
+      } catch (err) {
+        console.error("[restore-history-error]", err);
+      }
+      // Default welcome message if no history found
+      if (agent) {
+        setMessages([
+          {
+            role: "assistant",
+            content: agent.starting_message || `Hello! I am your AI assistant. How can I help you today?`
+          }
+        ]);
+      }
     }
-  }, [isRegistered, agent]);
+
+    if (isRegistered && agent) {
+      restorePublicHistory();
+    }
+  }, [isRegistered, agent, agentId, sessionId, deviceId]);
+
+  // Real-time Session Status Polling for Creator Action Buttons (GET /api/agents/:id/session-status)
+  useEffect(() => {
+    if (!agentId || !sessionId || !deviceId) return;
+
+    async function checkSessionStatus() {
+      const apiBase = import.meta.env.VITE_API_BASE_URL || "";
+      try {
+        const res = await fetch(`${apiBase}/api/agents/${agentId}/session-status?device_id=${encodeURIComponent(deviceId)}&session_id=${encodeURIComponent(sessionId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.session && data.session.action_button) {
+            setActiveActionButton(data.session.action_button);
+          } else {
+            setActiveActionButton(null);
+          }
+        }
+      } catch (e) {
+        // ignore polling error
+      }
+    }
+
+    checkSessionStatus();
+    const interval = setInterval(checkSessionStatus, 4000);
+    return () => clearInterval(interval);
+  }, [agentId, sessionId, deviceId]);
+
+  // Submit Feedback Handler (POST /api/agents/:id/feedback)
+  async function handleFeedbackSubmit(e) {
+    e.preventDefault();
+    if (!agentId) return;
+    setSubmittingFeedback(true);
+    const apiBase = import.meta.env.VITE_API_BASE_URL || "";
+    try {
+      const res = await fetch(`${apiBase}/api/agents/${agentId}/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_name: userName || "Anonymous Visitor",
+          user_email: feedbackEmail.trim(),
+          feedback_type: "feedback",
+          rating: feedbackRating,
+          comment: feedbackComment.trim()
+        })
+      });
+      if (!res.ok) throw new Error("Failed to submit feedback");
+      toastSuccess("Thank you! Your feedback has been submitted.");
+      setShowFeedbackModal(false);
+      setFeedbackComment("");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSubmittingFeedback(false);
+    }
+  }
 
   // Visitor Registration Handler
   function handleRegisterSubmit(e) {
@@ -169,23 +258,51 @@ export function PublicAgentChat() {
     // Immediately stop any ongoing AI audio speech
     stopAiSpeech();
 
+    // Mark question as asked so it vanishes from FAQ chips and next follow-up slides in
+    const trimmedTxt = userText.trim();
+    setAskedQuestions(prev => prev.includes(trimmedTxt) ? prev : [...prev, trimmedTxt]);
+
     sendingRef.current = true;
     setChatLoading(true);
-    setMessages(prev => [...prev, { role: "user", content: userText }]);
+    setMessages(prev => [...prev, { role: "user", content: trimmedTxt }]);
 
+    const apiBase = import.meta.env.VITE_API_BASE_URL || "";
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/api/agents/${agentId}/public-ask`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question: userText,
-          session_id: sessionId,
-          device_id: deviceId,
-          device_name: deviceName,
-          user_name: userName,
-          phone_number: phoneNumber
-        })
-      });
+      let res;
+      try {
+        res = await fetch(`${apiBase}/api/agents/${agentId}/public-ask`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question: userText,
+            session_id: sessionId,
+            device_id: deviceId,
+            device_name: deviceName,
+            user_name: (userName && userName !== "Anonymous Visitor") ? userName : "",
+            phone_number: (phoneNumber && phoneNumber !== "Not Provided") ? phoneNumber : ""
+          })
+        });
+      } catch (firstErr) {
+        // Fallback to live EC2 backend if local connection is refused/offline
+        if (!apiBase || apiBase.includes("localhost")) {
+          console.warn("[API] Local backend offline; using live EC2 backend fallback...");
+          const liveBase = "http://65.2.129.159:4000";
+          res = await fetch(`${liveBase}/api/agents/${agentId}/public-ask`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              question: userText,
+              session_id: sessionId,
+              device_id: deviceId,
+              device_name: deviceName,
+              user_name: (userName && userName !== "Anonymous Visitor") ? userName : "",
+              phone_number: (phoneNumber && phoneNumber !== "Not Provided") ? phoneNumber : ""
+            })
+          });
+        } else {
+          throw firstErr;
+        }
+      }
 
       if (!res.ok) throw new Error("Request failed");
       const data = await res.json();
@@ -220,6 +337,12 @@ export function PublicAgentChat() {
     await sendTextMessage(txt);
   }
 
+  const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, chatLoading]);
+
   const isPlayingAudioRef = useRef(false);
   useEffect(() => {
     isPlayingAudioRef.current = isPlayingAudio;
@@ -245,34 +368,71 @@ export function PublicAgentChat() {
     isPlayingAudioRef.current = true;
     aiSpeechStartRef.current = Date.now();
 
-    const audioUrl = `${import.meta.env.VITE_API_BASE_URL || ""}/api/agents/${agentId}/speak?text=${encodeURIComponent(text)}`;
+    const apiBase = import.meta.env.VITE_API_BASE_URL || "http://65.2.129.159:4000";
+    const audioUrl = `${apiBase}/api/agents/${agentId}/speak?text=${encodeURIComponent(text)}`;
     const audio = new Audio(audioUrl);
     audioRef.current = audio;
 
     audio.play().catch(err => {
       console.error(err);
-      setIsPlayingAudio(false);
-      isPlayingAudioRef.current = false;
+      if (apiBase.includes("localhost")) {
+        const fallbackUrl = `http://65.2.129.159:4000/api/agents/${agentId}/speak?text=${encodeURIComponent(text)}`;
+        const fallbackAudio = new Audio(fallbackUrl);
+        audioRef.current = fallbackAudio;
+        fallbackAudio.play().catch(e => {
+          console.error(e);
+          setIsPlayingAudio(false);
+          isPlayingAudioRef.current = false;
+        });
+        fallbackAudio.onended = () => {
+          setIsPlayingAudio(false);
+          isPlayingAudioRef.current = false;
+          if (isVoicePageOpenRef.current && !isManuallyMutedRef.current) {
+            setTimeout(() => {
+              if (isVoicePageOpenRef.current && !isManuallyMutedRef.current && !isPlayingAudioRef.current) {
+                startRecording();
+              }
+            }, 400);
+          }
+        };
+      } else {
+        setIsPlayingAudio(false);
+        isPlayingAudioRef.current = false;
+      }
     });
 
     audio.onended = () => {
       setIsPlayingAudio(false);
       isPlayingAudioRef.current = false;
-      // Auto-start listening again after AI finishes speaking in voice call mode
+      // Auto-start listening for user's question AFTER AI finishes speaking
       if (isVoicePageOpenRef.current && !isManuallyMutedRef.current) {
-        startRecording();
+        setTimeout(() => {
+          if (isVoicePageOpenRef.current && !isManuallyMutedRef.current && !isPlayingAudioRef.current) {
+            startRecording();
+          }
+        }, 400);
       }
     };
   }
 
   // Real-time External STT via Backend WebSocket Proxy (/api/agents/ws/transcribe)
   function startRecording() {
-    if (isRecording || wsRef.current) return;
+    if (isRecording || wsRef.current || recognitionRef.current || isPlayingAudioRef.current) return;
     isManuallyMutedRef.current = false;
     speechSentRef.current = false;
 
+    // If WebSocket previously failed or HTTPS/HTTP mismatch, directly route to Web Speech STT
+    const apiBase = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:4000`;
+    const isHttpsPage = window.location.protocol === "https:";
+    const isHttpApi = apiBase.startsWith("http:");
+
+    if (wsFailedRef.current || (isHttpsPage && isHttpApi)) {
+      console.log("[STT] Routing directly to Web Speech STT for reliable voice recording.");
+      startFallbackWebSpeechSTT();
+      return;
+    }
+
     try {
-      const apiBase = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:4000`;
       const urlObj = new URL(apiBase, window.location.href);
       const wsProtocol = urlObj.protocol === "https:" ? "wss:" : "ws:";
       const wsHost = urlObj.port ? `${urlObj.hostname}:${urlObj.port}` : urlObj.host;
@@ -307,23 +467,10 @@ export function PublicAgentChat() {
 
           processor.onaudioprocess = (e) => {
             if (socket.readyState !== WebSocket.OPEN) return;
+            // Prevent sending speaker audio buffer to STT while AI is speaking
+            if (isPlayingAudioRef.current) return;
 
             const inputData = e.inputBuffer.getChannelData(0);
-
-            // VAD Interruption Check: compute RMS energy of microphone input while AI is speaking
-            if (isPlayingAudioRef.current && (Date.now() - aiSpeechStartRef.current > 350)) {
-              let sum = 0;
-              for (let i = 0; i < inputData.length; i++) {
-                sum += inputData[i] * inputData[i];
-              }
-              const rms = Math.sqrt(sum / inputData.length);
-
-              // If user speaks into mic (RMS > 0.045), stop AI speech immediately to listen to user!
-              if (rms > 0.045) {
-                console.log("[Interruption VAD] User voice energy detected (RMS:", rms.toFixed(4), ") - stopping AI speech!");
-                stopAiSpeech();
-              }
-            }
 
             // Convert 32-bit float PCM to 16-bit Int16 PCM ArrayBuffer
             const pcm16 = new Int16Array(inputData.length);
@@ -345,6 +492,9 @@ export function PublicAgentChat() {
 
       socket.onmessage = (event) => {
         try {
+          // Ignore any message if AI is currently playing audio to prevent self-echo
+          if (isPlayingAudioRef.current) return;
+
           let textStr = "";
           let isFinal = false;
 
@@ -378,12 +528,6 @@ export function PublicAgentChat() {
 
           const cleanText = textStr.trim();
           if (cleanText) {
-            // If AI is currently speaking and user speaks, interrupt AI audio immediately!
-            if (isPlayingAudioRef.current && (Date.now() - aiSpeechStartRef.current > 250)) {
-              console.log("[Interruption STT] User speech transcript detected ('" + cleanText + "') - stopping AI speech!");
-              stopAiSpeech();
-            }
-
             setChatInput(cleanText);
 
             // Auto-send on final or 1500ms silence timeout
@@ -402,13 +546,15 @@ export function PublicAgentChat() {
       };
 
       socket.onerror = (err) => {
-        console.error("[STT] WebSocket connection error:", err);
+        console.warn("[STT] WebSocket error, flagging for Web Speech fallback");
+        wsFailedRef.current = true;
       };
 
       socket.onclose = () => {
         console.log("[STT] WebSocket connection closed, enabling fallback Speech STT...");
+        wsFailedRef.current = true;
         wsRef.current = null;
-        if (isVoicePageOpenRef.current && !isManuallyMutedRef.current) {
+        if (isVoicePageOpenRef.current && !isManuallyMutedRef.current && !isPlayingAudioRef.current) {
           startFallbackWebSpeechSTT();
         } else {
           setIsRecording(false);
@@ -416,7 +562,8 @@ export function PublicAgentChat() {
       };
     } catch (err) {
       console.error("[STT] Failed to initialize WebSocket:", err);
-      if (isVoicePageOpenRef.current && !isManuallyMutedRef.current) {
+      wsFailedRef.current = true;
+      if (isVoicePageOpenRef.current && !isManuallyMutedRef.current && !isPlayingAudioRef.current) {
         startFallbackWebSpeechSTT();
       } else {
         setIsRecording(false);
@@ -425,58 +572,84 @@ export function PublicAgentChat() {
   }
 
   function startFallbackWebSpeechSTT() {
+    stopRecording(); // ensure previous Web Audio stream tracks are closed
+    if (isPlayingAudioRef.current) return;
+
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
+      console.warn("[STT] Web Speech API not supported in this browser");
       setIsRecording(false);
       return;
     }
-    const recognition = new SpeechRecognition();
-    recognition.lang = "en-IN"; // English (Indian accent) to prevent Devanagari text conversion
-    recognition.interimResults = true;
-    recognition.continuous = true;
-    recognition.onstart = () => setIsRecording(true);
-    recognition.onresult = (e) => {
-      let interim = "";
-      let final = "";
-      for (let i = e.resultIndex; i < e.results.length; ++i) {
-        if (e.results[i].isFinal) {
-          final += e.results[i][0].transcript;
-        } else {
-          interim += e.results[i][0].transcript;
-        }
-      }
-      const cleanText = (final || interim).trim();
-      if (cleanText) {
-        if (isPlayingAudioRef.current && (Date.now() - aiSpeechStartRef.current > 250)) {
-          console.log("[Interruption WebSpeech] User speech detected ('" + cleanText + "') - stopping AI speech!");
-          stopAiSpeech();
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = "en-IN"; // English (Indian accent)
+      recognition.interimResults = true;
+      recognition.continuous = false; // Single phrase mode prevents Android Chrome speech service crashes
+
+      recognition.onstart = () => {
+        setIsRecording(true);
+      };
+
+      recognition.onresult = (e) => {
+        // PREVENT SELF-ECHO: Ignore any speech recognition results if AI is playing audio
+        if (isPlayingAudioRef.current) {
+          console.log("[STT] Suppressed speaker self-echo while AI is speaking");
+          return;
         }
 
-        setChatInput(cleanText);
-
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        if (final) {
-          sendTextMessage(cleanText);
-        } else {
-          silenceTimerRef.current = setTimeout(() => {
-            sendTextMessage(cleanText);
-          }, 1500);
-        }
-      }
-    };
-    recognition.onend = () => {
-      if (isVoicePageOpenRef.current && !isManuallyMutedRef.current) {
-        setTimeout(() => {
-          if (isVoicePageOpenRef.current && !isManuallyMutedRef.current && !wsRef.current) {
-            try { recognition.start(); } catch (err) {}
+        let interim = "";
+        let final = "";
+        for (let i = e.resultIndex; i < e.results.length; ++i) {
+          if (e.results[i].isFinal) {
+            final += e.results[i][0].transcript;
+          } else {
+            interim += e.results[i][0].transcript;
           }
-        }, 300);
-      } else {
-        setIsRecording(false);
-      }
-    };
-    recognitionRef.current = recognition;
-    try { recognition.start(); } catch (err) {}
+        }
+        const cleanText = (final || interim).trim();
+        if (cleanText) {
+          setChatInput(cleanText);
+
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+          if (final) {
+            sendTextMessage(cleanText);
+          } else {
+            silenceTimerRef.current = setTimeout(() => {
+              sendTextMessage(cleanText);
+            }, 1500);
+          }
+        }
+      };
+
+      recognition.onerror = (e) => {
+        console.warn("[STT WebSpeech Error]", e.error);
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed' || e.error === 'audio-capture') {
+          setIsRecording(false);
+          isManuallyMutedRef.current = true;
+        }
+      };
+
+      recognition.onend = () => {
+        recognitionRef.current = null;
+        if (isVoicePageOpenRef.current && !isManuallyMutedRef.current && !isPlayingAudioRef.current) {
+          setTimeout(() => {
+            if (isVoicePageOpenRef.current && !isManuallyMutedRef.current && !isPlayingAudioRef.current) {
+              startFallbackWebSpeechSTT();
+            }
+          }, 400);
+        } else {
+          setIsRecording(false);
+        }
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.error("[STT WebSpeech] Exception starting recognition:", err);
+      setIsRecording(false);
+    }
   }
 
   function stopRecording() {
@@ -529,51 +702,58 @@ export function PublicAgentChat() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-slate-100 text-slate-800">
+    <div className="flex flex-col h-[100dvh] bg-slate-950 text-slate-100 font-sans overflow-hidden">
       
       {/* Brand Header */}
-      <header className="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-full overflow-hidden border border-slate-700 bg-white flex items-center justify-center">
+      <header className="bg-slate-900/90 backdrop-blur-md text-white px-3 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between border-b border-slate-800/80 shadow-lg shrink-0 z-20">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-full overflow-hidden border-2 border-indigo-500/50 bg-white flex items-center justify-center shadow-md shrink-0">
             {agent?.customization?.author_image_url || agent?.customization?.logo_url ? (
               <img src={mediaUrl(agent.customization.author_image_url || agent.customization.logo_url)} alt="Avatar" className="h-full w-full object-cover" />
             ) : (
-              <LuBot className="h-6 w-6 text-indigo-600" />
+              <LuBot className="h-5 w-5 sm:h-6 sm:w-6 text-indigo-600" />
             )}
           </div>
-          <div>
-            <h1 className="text-sm font-bold truncate max-w-xs">{agent?.name || "AI Support Agent"}</h1>
-            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">{agent?.category || "Interactive"} Chatroom</span>
+          <div className="min-w-0">
+            <h1 className="text-xs sm:text-base font-extrabold truncate max-w-[140px] xs:max-w-[180px] sm:max-w-md text-slate-100">{agent?.name || "AI Support Agent"}</h1>
+            <div className="flex items-center gap-1.5 text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-wider truncate">
+              <span className="flex items-center gap-1 text-emerald-400 shrink-0">
+                <span className="h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-emerald-500 animate-ping inline-block"></span> Online Assistant
+              </span>
+              <span className="hidden sm:inline">• {agent?.category || "Interactive"} Chatroom</span>
+            </div>
           </div>
         </div>
 
-        {isPlayingAudio && (
-          <span className="text-[9px] bg-indigo-500 text-white font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5 animate-pulse">
-            <LuVolume2 className="h-3 w-3" /> Agent Speaking
-          </span>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {isPlayingAudio && (
+            <span className="text-[9px] sm:text-[10px] bg-indigo-600 text-white font-bold px-2.5 py-1 rounded-full flex items-center gap-1 animate-pulse shadow-md">
+              <LuVolume2 className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> <span className="hidden xs:inline">Agent</span> Speaking...
+            </span>
+          )}
+        </div>
       </header>
 
-      {/* Main Container */}
-      <main className="flex-1 flex flex-col justify-center max-w-lg w-full mx-auto bg-white shadow-lg overflow-hidden border-x border-slate-200">
+      {/* Main Container (Spacious Responsive Full Desktop Width) */}
+      <main className="flex-1 flex flex-col justify-center max-w-4xl lg:max-w-5xl w-full mx-auto bg-slate-900/40 shadow-2xl overflow-hidden border-x border-slate-800/60 relative">
         {!isRegistered ? (
           /* Registration Form */
-          <div className="p-6 space-y-6">
+          <div className="p-6 space-y-6 max-w-md mx-auto w-full my-auto">
             <div className="text-center">
-              <div className="h-14 w-14 bg-indigo-50 border border-indigo-150 rounded-full flex items-center justify-center mx-auto mb-3 shadow-sm overflow-hidden">
+              <div className="h-16 w-16 bg-indigo-900/40 border border-indigo-500/30 rounded-full flex items-center justify-center mx-auto mb-3 shadow-lg overflow-hidden">
                 {agent?.customization?.author_image_url || agent?.customization?.logo_url ? (
                   <img src={mediaUrl(agent.customization.author_image_url || agent.customization.logo_url)} alt="Avatar" className="h-full w-full object-cover" />
                 ) : (
-                  <LuBot className="h-7 w-7 text-indigo-600" />
+                  <LuBot className="h-8 w-8 text-indigo-400" />
                 )}
               </div>
-              <h2 className="text-base font-bold text-slate-800">Verify Identity to Chat</h2>
-              <p className="text-xs text-slate-500 mt-1">Please enter your basic information. Your host will be notified of this session.</p>
+              <h2 className="text-lg font-extrabold text-slate-100">Verify Identity to Chat</h2>
+              <p className="text-xs text-slate-400 mt-1">Please enter your basic information to start your AI session.</p>
             </div>
 
             <form onSubmit={handleRegisterSubmit} className="space-y-4 text-xs">
               <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1 flex items-center gap-1">
+                <label className="block text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1">
                   <LuUser className="h-3.5 w-3.5" /> Full Name*
                 </label>
                 <input
@@ -582,12 +762,12 @@ export function PublicAgentChat() {
                   placeholder="e.g. Aditya Sharma"
                   value={userName}
                   onChange={(e) => setUserName(e.target.value)}
-                  className="bg-white border border-slate-300 text-slate-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 p-2.5 w-full shadow-sm"
+                  className="bg-slate-900 border border-slate-700 text-slate-100 text-xs rounded-xl focus:ring-indigo-500 focus:border-indigo-500 p-3 w-full shadow-sm"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1 flex items-center gap-1">
+                <label className="block text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1">
                   <LuPhone className="h-3.5 w-3.5" /> Mobile Number*
                 </label>
                 <input
@@ -596,19 +776,19 @@ export function PublicAgentChat() {
                   placeholder="e.g. 9876543210"
                   value={phoneNumber}
                   onChange={(e) => setPhoneNumber(e.target.value)}
-                  className="bg-white border border-slate-300 text-slate-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 p-2.5 w-full shadow-sm"
+                  className="bg-slate-900 border border-slate-700 text-slate-100 text-xs rounded-xl focus:ring-indigo-500 focus:border-indigo-500 p-3 w-full shadow-sm"
                 />
               </div>
 
-              <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg flex items-center gap-2.5 text-[10px] text-slate-500">
-                <LuSmartphone className="h-4.5 w-4.5 text-slate-400 shrink-0" />
+              <div className="bg-slate-900/60 border border-slate-800 p-3 rounded-xl flex items-center gap-2.5 text-[10px] text-slate-400">
+                <LuSmartphone className="h-4.5 w-4.5 text-slate-500 shrink-0" />
                 <span>Detected Platform: <strong>{deviceName}</strong></span>
               </div>
 
               <button
                 type="submit"
                 style={{ backgroundColor: brandColor }}
-                className="w-full text-white font-semibold py-2.5 rounded-lg shadow-md transition hover:brightness-95 text-sm"
+                className="w-full text-white font-bold py-3 rounded-xl shadow-lg transition hover:brightness-110 text-sm cursor-pointer"
               >
                 Launch Conversation
               </button>
@@ -749,72 +929,113 @@ export function PublicAgentChat() {
           </div>
         ) : (
           /* ==================== Conversational Chat Portal ==================== */
-          <div className="flex-1 flex flex-col justify-between h-full bg-slate-50 text-xs">
+          <div className="flex-1 flex flex-col justify-between h-full bg-slate-900 text-slate-200 text-xs relative overflow-hidden">
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 max-h-[calc(100vh-8rem)]">
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 max-h-[calc(100vh-8.5rem)] no-scrollbar scrollbar-none">
               {messages.map((chat, idx) => (
                 <div key={idx} className={`flex flex-col ${chat.role === "user" ? "items-end" : "items-start"}`}>
                   <div
-                    style={chat.role === "user" ? { backgroundColor: brandColor, color: "#fff" } : { backgroundColor: "#fff", color: "#1e293b", borderWidth: "1px", borderColor: "#e2e8f0" }}
-                    className={`max-w-xs px-3.5 py-2.5 rounded-lg shadow-sm ${
-                      chat.role === "user" ? "rounded-tr-none" : "rounded-tl-none"
+                    style={chat.role === "user" ? { backgroundColor: brandColor, color: "#fff" } : { backgroundColor: "#1e293b", color: "#f1f5f9", borderWidth: "1px", borderColor: "#334155" }}
+                    className={`max-w-2xl px-5 py-3.5 rounded-2xl shadow-md leading-relaxed text-xs md:text-sm ${
+                      chat.role === "user" ? "rounded-tr-xs" : "rounded-tl-xs"
                     }`}
                   >
-                    <div className="prose prose-xs prose-slate max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_strong]:text-inherit [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs">
+                    <div className="prose prose-invert prose-xs max-w-none [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_li]:my-0.5 [&_strong]:text-indigo-300 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-xs font-normal">
                       <ReactMarkdown>{chat.content}</ReactMarkdown>
                     </div>
                   </div>
                   {chat.role === "assistant" && (
                     <button
                       onClick={() => playSpeech(chat.content)}
-                      className="text-slate-400 hover:text-indigo-600 mt-1 flex items-center gap-0.5 text-[9px]"
+                      className="text-slate-400 hover:text-indigo-400 mt-1.5 flex items-center gap-1 text-[10px] font-bold transition cursor-pointer px-1 py-0.5"
                       title="Play Audio"
                     >
-                      <LuVolume2 className="h-3 w-3" /> Read aloud
+                      <LuVolume2 className="h-3.5 w-3.5 text-indigo-400" /> Read aloud
                     </button>
                   )}
                 </div>
               ))}
-              {chatLoading && <p className="text-[10px] text-slate-400 animate-pulse">Thinking...</p>}
+              {chatLoading && (
+                <div className="flex items-center gap-2 text-xs text-indigo-400 font-bold animate-pulse p-2">
+                  <LuBot className="h-4 w-4" /> Thinking response...
+                </div>
+              )}
+              <div ref={messagesEndRef} />
             </div>
 
-            {/* Input Form Controls */}
-            <div className="bg-white border-t border-slate-200 p-3 shadow-md flex flex-col gap-2">
-              {/* FAQ Q&A Suggestion Chips */}
-              {agent?.customization?.qa_pairs && agent.customization.qa_pairs.length > 0 && (
-                <div className="flex gap-1.5 overflow-x-auto pb-1 max-w-full scrollbar-thin">
-                  {agent.customization.qa_pairs.map((qa, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => sendTextMessage(qa.q)}
-                      className="shrink-0 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 hover:border-indigo-300 text-[10px] font-bold text-slate-600 px-3 py-1.5 rounded-full transition cursor-pointer"
-                    >
-                      {qa.q}
-                    </button>
-                  ))}
+            {/* Floating Input Dock (Sticky Pinned to Bottom for 0% Mobile Scroll Access) */}
+            <div className="p-2.5 sm:p-4 bg-slate-950/95 backdrop-blur-lg border-t border-slate-800 shadow-2xl flex flex-col gap-2 shrink-0 sticky bottom-0 z-30">
+              
+              {/* Creator Action Button Banner */}
+              {activeActionButton && (
+                <div className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white p-3 rounded-xl flex items-center justify-between shadow-lg animate-pulse">
+                  <div className="flex items-center gap-2.5">
+                    {activeActionButton.action_type === "whatsapp" ? (
+                      <LuMessageCircle className="h-6 w-6 text-emerald-100" />
+                    ) : (
+                      <LuPhone className="h-6 w-6 text-emerald-100" />
+                    )}
+                    <div>
+                      <p className="font-extrabold text-xs">{activeActionButton.message || (activeActionButton.action_type === "whatsapp" ? "Connect on WhatsApp" : "Call Us Now")}</p>
+                      <p className="text-[10px] text-emerald-100 font-semibold">{activeActionButton.phone_number}</p>
+                    </div>
+                  </div>
+                  <a
+                    href={activeActionButton.action_type === "whatsapp" ? `https://wa.me/${String(activeActionButton.phone_number).replace(/\D/g, '')}` : `tel:${activeActionButton.phone_number}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="bg-white text-emerald-800 font-extrabold px-4 py-2 rounded-lg text-xs hover:bg-emerald-50 transition shadow-md"
+                  >
+                    {activeActionButton.action_type === "whatsapp" ? "WhatsApp Connect" : "Call Now"}
+                  </a>
                 </div>
               )}
 
-              <form onSubmit={sendMessage} className="flex gap-2">
+              {/* FAQ Q&A Suggestion Chips (Desktop: 5 FAQs, Mobile: 3 FAQs) */}
+              {agent?.customization?.qa_pairs && agent.customization.qa_pairs.length > 0 && (() => {
+                const availableFaqs = agent.customization.qa_pairs
+                  .filter(qa => qa.q && !askedQuestions.includes(qa.q.trim()))
+                  .slice(0, 5);
+
+                if (availableFaqs.length === 0) return null;
+
+                return (
+                  <div className="flex gap-1.5 overflow-x-auto pb-1 max-w-full no-scrollbar scrollbar-none snap-x touch-pan-x">
+                    {availableFaqs.map((qa, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => sendTextMessage(qa.q)}
+                        className={`shrink-0 bg-slate-800/90 hover:bg-indigo-600 hover:text-white border border-slate-700/80 text-[10px] sm:text-[11px] font-bold text-slate-300 px-3 py-1.5 rounded-full transition-all cursor-pointer shadow-2xs hover:scale-[1.02] snap-start ${
+                          idx >= 3 ? "hidden md:inline-block" : "inline-block"
+                        }`}
+                      >
+                        {qa.q}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              <form onSubmit={sendMessage} className="flex gap-1.5 sm:gap-2.5 items-center bg-slate-900 border border-slate-800 p-1 sm:p-1.5 rounded-2xl shadow-inner">
                 <button
                   type="button"
                   onClick={() => {
                     setIsVoicePageOpen(true);
                     startRecording();
                   }}
-                  className="p-2.5 rounded-lg shadow-sm border border-slate-300 text-slate-650 bg-slate-50 hover:bg-slate-100 hover:text-indigo-650 transition shrink-0 cursor-pointer"
+                  className="p-2.5 sm:p-3 rounded-xl border border-slate-700 text-indigo-400 bg-slate-800 hover:bg-indigo-600 hover:text-white transition shrink-0 cursor-pointer shadow-xs"
                   title="Switch to Voice-to-Voice Call Mode"
                 >
-                  <LuMic className="h-4.5 w-4.5" />
+                  <LuMic className="h-4 w-4 sm:h-5 sm:w-5" />
                 </button>
 
                 <input
                   type="text"
-                  placeholder="Type your message..."
+                  placeholder="Ask any question..."
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
-                  className="flex-1 bg-white border border-slate-300 text-slate-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 p-2.5 shadow-sm"
+                  className="flex-1 bg-transparent text-slate-100 placeholder-slate-500 text-xs md:text-sm px-2 sm:px-3 py-1.5 sm:py-2 focus:outline-none min-w-0"
                   disabled={chatLoading}
                 />
 
@@ -822,15 +1043,17 @@ export function PublicAgentChat() {
                   type="submit"
                   disabled={chatLoading || !chatInput.trim()}
                   style={{ backgroundColor: brandColor }}
-                  className="text-white font-semibold p-2.5 rounded-lg shadow transition hover:brightness-95 flex items-center justify-center shrink-0"
+                  className="text-white font-bold p-2.5 sm:p-3 rounded-xl shadow-md transition hover:brightness-110 disabled:opacity-40 flex items-center justify-center shrink-0 cursor-pointer"
                 >
-                  <LuSend className="h-4.5 w-4.5" />
+                  <LuSend className="h-4 w-4 sm:h-5 sm:w-5" />
                 </button>
               </form>
             </div>
           </div>
         )}
       </main>
+
+
 
     </div>
   );

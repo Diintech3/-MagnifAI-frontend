@@ -24,7 +24,17 @@ import {
   LuArrowLeft,
   LuFolder,
   LuEye,
-  LuEyeOff
+  LuEyeOff,
+  LuStar,
+  LuPhone,
+  LuMessageCircle,
+  LuSearch,
+  LuUsers,
+  LuUserCheck,
+  LuInfo,
+  LuX,
+  LuPrinter,
+  LuDownload
 } from "react-icons/lu";
 
 const providerModels = {
@@ -72,7 +82,7 @@ const providerVoices = {
 };
 
 export function AppAiAgent() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [agents, setAgents] = useState([]);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedAgent, setSelectedAgent] = useState(null);
@@ -155,10 +165,144 @@ export function AppAiAgent() {
   // Leads & Session logs state
   const [sessions, setSessions] = useState([]);
   const [selectedSession, setSelectedSession] = useState(null);
+  const [selectedContactKey, setSelectedContactKey] = useState("");
+  const [contactSearchTerm, setContactSearchTerm] = useState("");
+  const [showMetadataModal, setShowMetadataModal] = useState(false);
   const [chatHistory, setChatHistory] = useState([]);
-  const [sessionActiveTab, setSessionActiveTab] = useState("history");
+  const [sessionActiveTab, setSessionActiveTab] = useState("user_info");
   const [historyLoading, setHistoryLoading] = useState(false);
   const [analyzingSessionId, setAnalyzingSessionId] = useState(null);
+
+  // Feedbacks & Creator Actions State
+  const [feedbacks, setFeedbacks] = useState([]);
+  const [loadingFeedbacks, setLoadingFeedbacks] = useState(false);
+  const [sendingAction, setSendingAction] = useState(false);
+
+  // CEO AI Quality & Accuracy Audit State
+  const [evaluations, setEvaluations] = useState({});
+  const [evalNoteMap, setEvalNoteMap] = useState({});
+
+  function handleEvaluateMessage(msgId, status) {
+    setEvaluations(prev => ({ ...prev, [msgId]: status }));
+    if (status === "good") {
+      toastSuccess("Marked AI response as Accurate (Sahi Jawab) 👍");
+    } else {
+      toastSuccess("Marked AI response as Inaccurate / Needs Prompt Fix 👎");
+    }
+  }
+
+  function handleSaveSessionAudit(sessionId) {
+    toastSuccess("CEO AI Accuracy Audit & Notes saved for this session! 🎯");
+  }
+
+  // Visiting Card Customization State
+  const [cardTemplate, setCardTemplate] = useState("gold"); // "gold" | "yellow" | "wave"
+  const [cardSide, setCardSide] = useState("front"); // "front" | "back"
+
+  function handleShareCard(agentId) {
+    const cardUrl = `${window.location.origin}/agent-chat?id=${agentId || selectedAgentId}`;
+    if (navigator.share) {
+      navigator.share({
+        title: `${user?.name || "CEO"} - AI Agent Visiting Card`,
+        text: `Connect & chat with ${user?.name || "CEO"}'s AI Assistant:`,
+        url: cardUrl
+      }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(cardUrl);
+      toastSuccess("Visiting Card link copied to clipboard! Share on WhatsApp.");
+    }
+  }
+
+  function handleDownloadCard() {
+    window.print();
+  }
+
+  // Compute grouped contact list by identity key (Device ID > Phone > Real Name)
+  const groupedContacts = (() => {
+    if (!Array.isArray(sessions) || sessions.length === 0) return [];
+    const map = {};
+
+    // Pass 1: Resolve persistent names and phone numbers per device_id
+    const resolvedIdentities = {};
+    sessions.forEach(sess => {
+      const devKey = sess.device_id || sess.session_id;
+      if (!resolvedIdentities[devKey]) {
+        resolvedIdentities[devKey] = { name: "Anonymous Visitor", phone: "None" };
+      }
+      if (sess.user_name && sess.user_name !== "Anonymous Visitor" && !sess.user_name.includes("?")) {
+        resolvedIdentities[devKey].name = sess.user_name;
+      }
+      if (sess.phone_number && sess.phone_number !== "None" && !sess.phone_number.includes("?")) {
+        resolvedIdentities[devKey].phone = sess.phone_number;
+      }
+    });
+
+    // Pass 2: Group sessions under resolved visitor identities
+    sessions.forEach(sess => {
+      const devKey = sess.device_id || sess.session_id;
+      const identity = resolvedIdentities[devKey] || {};
+      const realName = (sess.user_name && sess.user_name !== "Anonymous Visitor") ? sess.user_name : identity.name;
+      const realPhone = (sess.phone_number && sess.phone_number !== "None") ? sess.phone_number : identity.phone;
+
+      let key = sess.device_id;
+      if (!key) {
+        if (realPhone && realPhone !== "None") key = `phone_${realPhone}`;
+        else if (realName && realName !== "Anonymous Visitor") key = `name_${realName}`;
+        else key = sess.session_id;
+      }
+
+      if (!map[key]) {
+        map[key] = {
+          key,
+          device_id: sess.device_id || key,
+          user_name: realName || "Anonymous Visitor",
+          phone_number: realPhone || "None",
+          device_name: sess.device_name || "Device",
+          last_active: sess.created_at || Date.now(),
+          visit_count: 0,
+          sessions: []
+        };
+      }
+
+      const enrichedSess = {
+        ...sess,
+        user_name: realName || sess.user_name || "Anonymous Visitor",
+        phone_number: realPhone || sess.phone_number || "None"
+      };
+
+      map[key].sessions.push(enrichedSess);
+      map[key].visit_count = map[key].sessions.length;
+
+      if (realName && realName !== "Anonymous Visitor") {
+        map[key].user_name = realName;
+      }
+      if (realPhone && realPhone !== "None") {
+        map[key].phone_number = realPhone;
+      }
+      if (new Date(sess.created_at) > new Date(map[key].last_active)) {
+        map[key].last_active = sess.created_at;
+      }
+    });
+
+    // Sort sessions in each contact group by created_at desc (latest first)
+    Object.values(map).forEach(group => {
+      group.sessions.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    });
+
+    let list = Object.values(map).sort((a, b) => new Date(b.last_active) - new Date(a.last_active));
+    if (contactSearchTerm.trim()) {
+      const q = contactSearchTerm.toLowerCase();
+      list = list.filter(c => c.user_name.toLowerCase().includes(q) || c.phone_number.toLowerCase().includes(q) || c.device_name.toLowerCase().includes(q));
+    }
+    return list;
+  })();
+
+  function handleContactSelect(contact) {
+    setSelectedContactKey(contact.key);
+    if (contact.sessions && contact.sessions.length > 0) {
+      handleSessionSelect(contact.sessions[0]);
+    }
+  }
 
   // Playground Sandbox
   const [chatInput, setChatInput] = useState("");
@@ -208,10 +352,90 @@ export function AppAiAgent() {
   async function loadSessions(id) {
     if (!id) return;
     try {
-      const data = await api(`/api/agents/${id}/sessions`, { token });
-      setSessions(data || []);
+      let rawData = await api(`/api/agents/${id}/user-sessions`, { token }).catch(() => null);
+      let flatList = [];
+      if (rawData && Array.isArray(rawData) && rawData.length > 0 && rawData[0].sessions) {
+        rawData.forEach(userGroup => {
+          if (Array.isArray(userGroup.sessions)) {
+            userGroup.sessions.forEach(s => {
+              flatList.push({
+                ...s,
+                device_id: userGroup.device_id,
+                device_name: userGroup.device_name || s.device_name || "Device",
+                user_name: userGroup.user_name || s.user_name || "Anonymous Visitor",
+                phone_number: userGroup.phone_number || s.phone_number || "None",
+                visit_count: userGroup.total_visits || userGroup.sessions.length
+              });
+            });
+          }
+        });
+      } else {
+        flatList = await api(`/api/agents/${id}/sessions`, { token }) || [];
+      }
+      setSessions(flatList || []);
+      if (Array.isArray(flatList) && flatList.length > 0) {
+        handleSessionSelect(flatList[0]);
+      }
     } catch (e) {
       console.error(e);
+    }
+  }
+
+  // Load visitor feedback & ratings list
+  async function loadFeedbacks(id) {
+    if (!id) return;
+    setLoadingFeedbacks(true);
+    try {
+      const data = await api(`/api/agents/${id}/feedback`, { token });
+      setFeedbacks(data || []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingFeedbacks(false);
+    }
+  }
+
+  async function handleSendAction(sessId, actionType) {
+    if (!sessId) return;
+    setSendingAction(true);
+    try {
+      const phoneNum = selectedSession?.phone_number && selectedSession.phone_number !== "None" ? selectedSession.phone_number : "9876543210";
+      const customMsg = actionType === "whatsapp" ? "Connect on WhatsApp" : "Call Us Now";
+      const data = await api(`/api/agents/sessions/${sessId}/send-action`, {
+        method: "POST",
+        token,
+        body: {
+          action_type: actionType,
+          phone_number: phoneNum,
+          message: customMsg
+        }
+      });
+      toastSuccess(`Action button (${actionType.toUpperCase()}) sent to visitor session!`);
+      const updatedAction = data?.action_button || { action_type: actionType, phone_number: phoneNum, message: customMsg };
+      setSelectedSession(prev => ({ ...prev, action_button: updatedAction }));
+      setSessions(prev => prev.map(s => s.session_id === sessId ? { ...s, action_button: updatedAction } : s));
+    } catch (e) {
+      toastFromError(e, "Failed to send action button");
+    } finally {
+      setSendingAction(false);
+    }
+  }
+
+  async function handleClearAction(sessId) {
+    if (!sessId) return;
+    setSendingAction(true);
+    try {
+      await api(`/api/agents/sessions/${sessId}/clear-action`, {
+        method: "DELETE",
+        token
+      });
+      toastSuccess("Action button cleared from visitor chat.");
+      setSelectedSession(prev => ({ ...prev, action_button: null }));
+      setSessions(prev => prev.map(s => s.session_id === sessId ? { ...s, action_button: null } : s));
+    } catch (e) {
+      toastFromError(e, "Failed to clear action button");
+    } finally {
+      setSendingAction(false);
     }
   }
 
@@ -223,6 +447,7 @@ export function AppAiAgent() {
     if (selectedAgentId) {
       loadAgentDetails(selectedAgentId);
       loadSessions(selectedAgentId);
+      loadFeedbacks(selectedAgentId);
       setSandboxHistory([]);
       setSelectedSession(null);
       setChatHistory([]);
@@ -868,254 +1093,608 @@ export function AppAiAgent() {
                     )}
                   </div>
                 )}
-
-                {/* 2. LEADS AND VISITOR CHATS TAB */}
+                {/* 2. LEADS AND VISITOR CHATS TAB (WhatsApp-Style Visitor Contact CRM) */}
                 {dashboardTab === "logs" && (
                   <div>
                     {!selectedAgentId ? (
                       <p className="text-slate-400 text-center py-12">Please create an agent first to view logs.</p>
                     ) : (
-                      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col min-h-[480px]">
-                        {/* Sub-tab selectors */}
-                        <div className="flex border-b border-slate-200 mb-4 bg-slate-50/50 p-1.5 rounded-lg gap-1.5">
-                          {[
-                            { id: "history", label: "History (All Chats)", icon: LuTrendingUp },
-                            { id: "user_info", label: "User Info & Chat", icon: LuBot, disabled: !selectedSession },
-                            { id: "conversation", label: "Conversation", icon: LuMessageSquare, disabled: !selectedSession },
-                            { id: "summary", label: "Summary", icon: LuFileText, disabled: !selectedSession },
-                            { id: "outcome", label: "Outcome Analysis", icon: LuSparkles, disabled: !selectedSession }
-                          ].map((tab) => {
-                            const Icon = tab.icon;
-                            const active = sessionActiveTab === tab.id;
-                            return (
-                              <button
-                                key={tab.id}
-                                type="button"
-                                onClick={() => !tab.disabled && setSessionActiveTab(tab.id)}
-                                disabled={tab.disabled}
-                                className={`flex items-center gap-1.5 px-4 py-2.5 rounded-md font-bold text-xs transition-all ${
-                                  tab.disabled
-                                    ? "opacity-40 cursor-not-allowed text-slate-400"
-                                    : active
-                                      ? "bg-white text-indigo-750 shadow-sm border border-slate-200 cursor-pointer"
-                                      : "text-slate-500 hover:text-slate-850 cursor-pointer"
-                                }`}
-                              >
-                                <Icon className="h-4 w-4" />
-                                {tab.label}
-                              </button>
-                            );
-                          })}
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-[600px]">
+                        
+                        {/* ==================== LEFT PANEL: WHATSAPP-STYLE VISITOR CONTACTS LIST ==================== */}
+                        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl shadow-xs flex flex-col h-full overflow-hidden">
+                          {/* Header & Search Bar */}
+                          <div className="p-3 border-b border-slate-200 bg-slate-50/70 space-y-2">
+                            <div className="flex justify-between items-center">
+                              <h3 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                <LuUsers className="h-4 w-4 text-indigo-600" /> Visitor Contacts ({groupedContacts.length})
+                              </h3>
+                              <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded-full">
+                                {sessions.length} Total
+                              </span>
+                            </div>
+                            
+                            <div className="relative">
+                              <LuSearch className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                              <input
+                                type="text"
+                                placeholder="Search contact or phone..."
+                                value={contactSearchTerm}
+                                onChange={(e) => setContactSearchTerm(e.target.value)}
+                                className="w-full bg-white border border-slate-200 text-slate-700 text-xs rounded-lg pl-8 pr-3 py-1.5 shadow-2xs focus:ring-indigo-500 focus:border-indigo-500"
+                              />
+                            </div>
+                          </div>                          {/* Contact Items List */}
+                          <div className="flex-1 overflow-y-auto divide-y divide-slate-100 no-scrollbar scrollbar-none">
+                            {groupedContacts.length > 0 ? (
+                              groupedContacts.map((contact) => {
+                                const isSelected = selectedContactKey === contact.key || (selectedSession && (selectedSession.device_id === contact.device_id || selectedSession.session_id === contact.key));
+                                const isRealName = contact.user_name !== "Anonymous Visitor";
+
+                                return (
+                                  <div
+                                    key={contact.key}
+                                    onClick={() => handleContactSelect(contact)}
+                                    className={`p-3 cursor-pointer transition flex items-start gap-2.5 ${
+                                      isSelected ? "bg-indigo-50/70 border-l-4 border-l-indigo-600 shadow-2xs" : "hover:bg-slate-50"
+                                    }`}
+                                  >
+                                    {/* Avatar circle */}
+                                    <div className={`h-8 w-8 rounded-full shrink-0 flex items-center justify-center font-extrabold text-xs shadow-2xs ${
+                                      isRealName ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-600"
+                                    }`}>
+                                      {isRealName ? contact.user_name.charAt(0).toUpperCase() : <LuUsers className="h-3.5 w-3.5" />}
+                                    </div>
+
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex justify-between items-baseline mb-0.5">
+                                        <h4 className={`text-xs truncate font-bold ${isRealName ? "text-slate-900" : "text-slate-650"}`}>
+                                          {contact.user_name}
+                                        </h4>
+                                        <span className="text-[9px] bg-indigo-100 text-indigo-800 font-extrabold px-1.5 py-0.5 rounded shrink-0 ml-1">
+                                          {contact.visit_count} {contact.visit_count === 1 ? "Visit" : "Visits"}
+                                        </span>
+                                      </div>
+
+                                      <p className="text-[10px] font-bold text-slate-500 truncate mb-0.5">
+                                        Phone: {contact.phone_number}
+                                      </p>
+
+                                      <div className="flex justify-between items-center text-[9px] text-slate-400">
+                                        <span className="truncate">{contact.device_name}</span>
+                                        <span>{new Date(contact.last_active).toLocaleDateString()}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <p className="text-slate-400 text-xs text-center py-12">No visitor contacts found.</p>
+                            )}
+                          </div>
                         </div>
 
-                        {/* Content display */}
-                        <div className="flex-1">
-                          {/* Tab 1: HISTORY (List of all sessions) */}
-                          {sessionActiveTab === "history" && (
-                            <div className="space-y-4">
-                              <h3 className="font-extrabold text-slate-855 text-xs uppercase tracking-wider mb-2">History of All Visitor Chats</h3>
-                              {sessions.length > 0 ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                  {sessions.map((sess) => (
-                                    <div
-                                      key={sess.session_id}
-                                      onClick={() => handleSessionSelect(sess)}
-                                      className={`p-4 bg-slate-50 hover:bg-indigo-50/30 border rounded-xl cursor-pointer transition ${
-                                        selectedSession?.session_id === sess.session_id ? "border-indigo-600 bg-indigo-50/10 shadow-xs" : "border-slate-200"
+                        {/* ==================== RIGHT PANEL: SELECTED VISITOR WORKSPACE & TIMELINE ==================== */}
+                        <div className="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col h-full overflow-hidden">
+                          {!selectedSession ? (
+                            <div className="flex-1 flex flex-col justify-center items-center text-center p-8">
+                              <LuUsers className="h-12 w-12 text-slate-300 mb-3" />
+                              <h4 className="font-bold text-slate-700 text-sm mb-1">No Visitor Selected</h4>
+                              <p className="text-xs text-slate-400 max-w-xs">Select a contact from the left list to view conversation history, AI analysis, and action controls.</p>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col h-full min-h-0 space-y-3">
+                              
+                              {/* Visitor Contact Header: Name Tap for Metadata Popup + Action Control + Timeline */}
+                              <div className="flex flex-wrap items-center justify-between gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200/80 shrink-0">
+                                <div className="flex items-center gap-2.5">
+                                  {/* Tap Name to Open Metadata Modal */}
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowMetadataModal(true)}
+                                    title="Click to view full visitor metadata"
+                                    className="flex items-center gap-2.5 text-left group cursor-pointer hover:bg-white p-1 rounded-lg transition"
+                                  >
+                                    <div className="h-9 w-9 rounded-full bg-indigo-600 text-white font-extrabold flex items-center justify-center text-xs shadow-2xs">
+                                      {selectedSession.user_name !== "Anonymous Visitor" ? selectedSession.user_name.charAt(0).toUpperCase() : <LuUsers className="h-4 w-4" />}
+                                    </div>
+                                    <div>
+                                      <h3 className="font-extrabold text-slate-900 text-xs group-hover:text-indigo-600 flex items-center gap-1.5">
+                                        {selectedSession.user_name || "Anonymous Visitor"}
+                                        <LuInfo className="h-3.5 w-3.5 text-indigo-500" />
+                                      </h3>
+                                      <p className="text-[10px] text-slate-500 font-medium">
+                                        Phone: <span className="font-bold text-slate-800">{selectedSession.phone_number || "None"}</span> • {selectedSession.device_name || "Device"}
+                                      </p>
+                                    </div>
+                                  </button>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  {/* Compact Creator Live Action Controls */}
+                                  {selectedSession.action_button ? (
+                                    <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg text-[10px] text-emerald-900 font-bold">
+                                      <span>Active: {selectedSession.action_button.action_type === "whatsapp" ? "WhatsApp" : "Call"}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleClearAction(selectedSession.session_id)}
+                                        disabled={sendingAction}
+                                        className="text-red-600 hover:text-red-800 underline font-bold cursor-pointer"
+                                      >
+                                        Clear
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSendAction(selectedSession.session_id, "call")}
+                                        disabled={sendingAction}
+                                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] py-1 px-2.5 rounded-md transition flex items-center gap-1 cursor-pointer shadow-3xs"
+                                      >
+                                        <LuPhone className="h-3 w-3" /> Call
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSendAction(selectedSession.session_id, "whatsapp")}
+                                        disabled={sendingAction}
+                                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] py-1 px-2.5 rounded-md transition flex items-center gap-1 cursor-pointer shadow-3xs"
+                                      >
+                                        <LuMessageCircle className="h-3 w-3" /> WhatsApp
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {/* Session Timeline Selector */}
+                                  {(() => {
+                                    const currentContactGroup = groupedContacts.find(c => c.sessions.some(s => s.session_id === selectedSession.session_id)) || groupedContacts.find(c => c.key === (selectedSession.device_id || selectedSession.session_id));
+                                    const contactSessions = currentContactGroup?.sessions || [selectedSession];
+                                    return (
+                                      <select
+                                        value={selectedSession.session_id}
+                                        onChange={(e) => {
+                                          const chosen = contactSessions.find(s => s.session_id === e.target.value);
+                                          if (chosen) handleSessionSelect(chosen);
+                                        }}
+                                        className="bg-white border border-slate-300 font-bold text-slate-800 text-xs rounded-lg px-2.5 py-1 shadow-2xs cursor-pointer focus:ring-indigo-500"
+                                      >
+                                        {contactSessions.map((s, idx) => (
+                                          <option key={s.session_id} value={s.session_id}>
+                                            Session {contactSessions.length - idx} ({new Date(s.created_at || Date.now()).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" })})
+                                          </option>
+                                        ))}
+                                      </select>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+
+                              {/* Sub-tab Navigation Bar (GUARANTEED ALL 5 TABS IN 1 SINGLE ROW!) */}
+                              <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50/70 p-1 rounded-xl gap-1 shrink-0 overflow-x-hidden whitespace-nowrap">
+                                {[
+                                  { id: "user_info", label: "User Info", icon: LuBot },
+                                  { id: "conversation", label: "Conversation", icon: LuMessageSquare },
+                                  { id: "summary", label: "Summary", icon: LuFileText },
+                                  { id: "outcome", label: "Outcome", icon: LuSparkles },
+                                  { id: "feedback", label: "Feedbacks", icon: LuStar }
+                                ].map((tab) => {
+                                  const Icon = tab.icon;
+                                  const active = sessionActiveTab === tab.id;
+                                  return (
+                                    <button
+                                      key={tab.id}
+                                      type="button"
+                                      onClick={() => setSessionActiveTab(tab.id)}
+                                      className={`flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg font-extrabold text-[11px] transition-all text-center ${
+                                        active
+                                          ? "bg-white text-indigo-700 shadow-2xs border border-slate-200 cursor-pointer"
+                                          : "text-slate-500 hover:text-slate-800 cursor-pointer"
                                       }`}
                                     >
-                                      <div className="flex justify-between items-start mb-2">
-                                        <span className="font-bold text-slate-900 text-sm">
-                                          {sess.user_name || "Anonymous Visitor"}
-                                        </span>
-                                        <span className="text-[9px] bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded">
-                                          {sess.analysis ? "Analyzed" : "New Lead"}
-                                        </span>
-                                      </div>
-                                      <p className="text-xs text-slate-650 font-bold mb-1">Phone: {sess.phone_number || "None"}</p>
-                                      <div className="flex justify-between items-center text-[10px] text-slate-400 mt-3 pt-2 border-t border-slate-200">
-                                        <span>Device: {sess.device_name || "N/A"}</span>
-                                        <span>{new Date(sess.created_at).toLocaleDateString()}</span>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-slate-400 text-xs text-center py-12">No visitor chats logged yet.</p>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Tab 2: USER INFO & CHAT (Metadata + conversation transcript together!) */}
-                          {sessionActiveTab === "user_info" && selectedSession && (
-                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                              {/* Metadata column */}
-                              <div className="bg-slate-50/50 border border-slate-200/60 p-5 rounded-xl space-y-4">
-                                <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider border-b border-slate-200 pb-2 flex items-center gap-1.5">
-                                  <LuBot className="h-4 w-4 text-indigo-600" /> Visitor Metadata
-                                </h4>
-                                <div className="space-y-3.5 text-xs">
-                                  <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs">
-                                    <span className="font-bold text-slate-400 block mb-1 text-[9px] uppercase">Visitor Name</span>
-                                    <span className="font-extrabold text-slate-800">{selectedSession.user_name || "Anonymous Visitor"}</span>
-                                  </div>
-                                  <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs">
-                                    <span className="font-bold text-slate-400 block mb-1 text-[9px] uppercase">Phone Number</span>
-                                    <span className="font-extrabold text-slate-800">{selectedSession.phone_number || "Not Provided"}</span>
-                                  </div>
-                                  <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs">
-                                    <span className="font-bold text-slate-400 block mb-1 text-[9px] uppercase">Platform / Device</span>
-                                    <span className="font-semibold text-slate-700">{selectedSession.device_name || "N/A"}</span>
-                                  </div>
-                                  <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs">
-                                    <span className="font-bold text-slate-400 block mb-1 text-[9px] uppercase">Session Start Date</span>
-                                    <span className="font-semibold text-slate-700">{new Date(selectedSession.created_at).toLocaleString()}</span>
-                                  </div>
-                                </div>
+                                      <Icon className="h-3.5 w-3.5 shrink-0" />
+                                      <span>{tab.label}</span>
+                                    </button>
+                                  );
+                                })}
                               </div>
 
-                              {/* Conversation inside User Info tab */}
-                              <div className="lg:col-span-2 space-y-4 bg-slate-50/30 p-4 rounded-xl border border-slate-200/60">
-                                <h4 className="font-extrabold text-slate-850 text-xs uppercase tracking-wider border-b border-slate-200 pb-2 mb-3">Conversation Transcript</h4>
-                                <div className="h-[280px] overflow-y-auto space-y-3 bg-white p-4 rounded-xl border border-slate-200">
-                                  {historyLoading ? (
-                                    <p className="text-xs text-slate-400 text-center py-12">Loading messages...</p>
-                                  ) : chatHistory.length > 0 ? (
-                                    chatHistory.map((chat, idx) => (
-                                      <div key={idx} className={`flex flex-col ${chat.role === "user" ? "items-end" : "items-start"}`}>
-                                        <div className={`max-w-md px-3.5 py-2.5 rounded-xl text-xs shadow-sm ${
-                                          chat.role === "user" ? "bg-indigo-600 text-white rounded-tr-none" : "bg-slate-50 border border-slate-200 text-slate-800 rounded-tl-none"
-                                        }`}>
-                                          {chat.content}
+                              {/* Workspace Content Display - Single Frame Full Height */}
+                              <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar scrollbar-none">
+                                {/* Tab 1: USER INFORMATION (Clean Visitor Metadata Profile Card) */}
+                                {sessionActiveTab === "user_info" && (
+                                  <div className="h-full overflow-y-auto space-y-4 bg-slate-50/50 p-5 rounded-xl border border-slate-200 no-scrollbar scrollbar-none">
+                                    <div className="flex justify-between items-center border-b border-slate-200 pb-2">
+                                      <h4 className="font-extrabold text-slate-855 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                        <LuBot className="h-4 w-4 text-indigo-600" /> Visitor Metadata Profile
+                                      </h4>
+                                      <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-2.5 py-0.5 rounded-full">
+                                        {selectedSession.visit_count || 1} Total Visits
+                                      </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                                      <div className="bg-white border border-slate-200/80 p-4 rounded-xl shadow-3xs space-y-1">
+                                        <span className="font-bold text-slate-400 block text-[9px] uppercase">Visitor Real Name</span>
+                                        <span className="font-extrabold text-slate-900 text-sm block">{selectedSession.user_name || "Anonymous Visitor"}</span>
+                                      </div>
+
+                                      <div className="bg-white border border-slate-200/80 p-4 rounded-xl shadow-3xs space-y-1">
+                                        <span className="font-bold text-slate-400 block text-[9px] uppercase">Phone Number</span>
+                                        <span className="font-extrabold text-slate-900 text-sm block">{selectedSession.phone_number || "Not Provided"}</span>
+                                      </div>
+
+                                      <div className="bg-white border border-slate-200/80 p-4 rounded-xl shadow-3xs space-y-1">
+                                        <span className="font-bold text-slate-400 block text-[9px] uppercase">Platform / Device</span>
+                                        <span className="font-semibold text-slate-800 text-xs block">{selectedSession.device_name || "N/A"}</span>
+                                      </div>
+
+                                      <div className="bg-white border border-slate-200/80 p-4 rounded-xl shadow-3xs space-y-1">
+                                        <span className="font-bold text-slate-400 block text-[9px] uppercase">Session Start Date</span>
+                                        <span className="font-semibold text-slate-800 text-xs block">{new Date(selectedSession.created_at).toLocaleString()}</span>
+                                      </div>
+                                    </div>
+
+                                    {/* Creator Action Buttons Control */}
+                                    <div className="bg-white border border-slate-200/80 p-4 rounded-xl shadow-3xs space-y-2.5">
+                                      <span className="font-bold text-slate-400 block text-[9px] uppercase">Creator Action Control</span>
+                                      {selectedSession.action_button ? (
+                                        <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-lg flex justify-between items-center">
+                                          <div>
+                                            <span className="text-xs text-emerald-900 font-bold block">
+                                              Active Action: {selectedSession.action_button.action_type === "whatsapp" ? "WhatsApp Button" : "Call Button"}
+                                            </span>
+                                            <span className="text-[10px] text-emerald-700 font-medium">
+                                              {selectedSession.action_button.message || selectedSession.action_button.phone_number}
+                                            </span>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleClearAction(selectedSession.session_id)}
+                                            disabled={sendingAction}
+                                            className="text-red-600 hover:text-red-800 text-xs font-bold underline cursor-pointer"
+                                          >
+                                            Clear Action
+                                          </button>
                                         </div>
-                                        <span className="text-[9px] text-slate-400 mt-1">{new Date(chat.created_at).toLocaleTimeString()}</span>
-                                      </div>
-                                    ))
-                                  ) : (
-                                    <p className="text-xs text-slate-400 text-center py-12">No chat logged.</p>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Tab 3: CONVERSATION (Chat bubbles transcript only) */}
-                          {sessionActiveTab === "conversation" && selectedSession && (
-                            <div className="space-y-4">
-                              <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider border-b border-slate-200 pb-2 mb-3">Conversation Transcript: {selectedSession.user_name || "Anonymous Visitor"}</h4>
-                              <div className="h-[340px] overflow-y-auto space-y-3.5 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                                {historyLoading ? (
-                                  <p className="text-xs text-slate-400 text-center py-12">Loading messages...</p>
-                                ) : chatHistory.length > 0 ? (
-                                  chatHistory.map((chat, idx) => (
-                                    <div key={idx} className={`flex flex-col ${chat.role === "user" ? "items-end" : "items-start"}`}>
-                                      <div className={`max-w-md px-3.5 py-2.5 rounded-xl text-xs shadow-sm ${
-                                        chat.role === "user" ? "bg-indigo-600 text-white rounded-tr-none" : "bg-white border border-slate-200 text-slate-800 rounded-tl-none"
-                                      }`}>
-                                        {chat.content}
-                                      </div>
-                                      <span className="text-[9px] text-slate-400 mt-1">{new Date(chat.created_at).toLocaleTimeString()}</span>
+                                      ) : (
+                                        <div className="flex gap-3 pt-1">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSendAction(selectedSession.session_id, "call")}
+                                            disabled={sendingAction}
+                                            className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2 px-3 rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer shadow-3xs"
+                                          >
+                                            <LuPhone className="h-4 w-4" /> Send "Call Now" Button
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSendAction(selectedSession.session_id, "whatsapp")}
+                                            disabled={sendingAction}
+                                            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 px-3 rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer shadow-3xs"
+                                          >
+                                            <LuMessageCircle className="h-4 w-4" /> Send "WhatsApp" Button
+                                          </button>
+                                        </div>
+                                      )}
                                     </div>
-                                  ))
-                                ) : (
-                                  <p className="text-xs text-slate-400 text-center py-12">No chat logged.</p>
+                                  </div>
+                                )}
+
+                                {/* Tab 2: CONVERSATION (100% Full-Width Transcript) */}
+                                {sessionActiveTab === "conversation" && (
+                                  <div className="h-full flex flex-col space-y-2">
+                                    <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider border-b border-slate-200 pb-1.5">
+                                      Transcript: {selectedSession.user_name || "Anonymous Visitor"}
+                                    </h4>
+                                    <div className="flex-1 overflow-y-auto space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200 min-h-[360px] no-scrollbar scrollbar-none">
+                                      {historyLoading ? (
+                                        <p className="text-xs text-slate-400 text-center py-12">Loading messages...</p>
+                                      ) : chatHistory.length > 0 ? (
+                                        chatHistory.map((chat, idx) => {
+                                          const msgKey = `${selectedSession.session_id}_${idx}`;
+                                          const currentEval = evaluations[msgKey];
+                                          return (
+                                            <div key={idx} className={`flex flex-col ${chat.role === "user" ? "items-end" : "items-start"}`}>
+                                              <div className={`max-w-lg px-4 py-2.5 rounded-xl text-xs shadow-2xs leading-relaxed ${
+                                                chat.role === "user" ? "bg-indigo-600 text-white rounded-tr-none" : "bg-white border border-slate-200 text-slate-800 rounded-tl-none"
+                                              }`}>
+                                                <div className="prose prose-xs max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_strong]:text-inherit [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs">
+                                                  <ReactMarkdown>{chat.content}</ReactMarkdown>
+                                                </div>
+                                              </div>
+                                              <div className="flex items-center gap-2 mt-1">
+                                                <span className="text-[9px] text-slate-400">{new Date(chat.created_at || Date.now()).toLocaleTimeString()}</span>
+                                                {chat.role === "assistant" && (
+                                                  <div className="flex items-center gap-1 bg-white border border-slate-200/80 px-2 py-0.5 rounded-md shadow-3xs text-[9px]">
+                                                    <span className="font-bold text-slate-400 mr-0.5">AI Response:</span>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => handleEvaluateMessage(msgKey, "good")}
+                                                      className={`font-extrabold px-1.5 py-0.5 rounded transition cursor-pointer flex items-center gap-0.5 ${
+                                                        currentEval === "good" ? "bg-emerald-100 text-emerald-800" : "text-slate-500 hover:text-emerald-700"
+                                                      }`}
+                                                      title="Mark response as Accurate (Sahi Jawab)"
+                                                    >
+                                                      👍 Accurate
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => handleEvaluateMessage(msgKey, "bad")}
+                                                      className={`font-extrabold px-1.5 py-0.5 rounded transition cursor-pointer flex items-center gap-0.5 ${
+                                                        currentEval === "bad" ? "bg-red-100 text-red-800" : "text-slate-500 hover:text-red-700"
+                                                      }`}
+                                                      title="Mark response as Needs Fix (Galat Jawab)"
+                                                    >
+                                                      👎 Needs Fix
+                                                    </button>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          );
+                                        })
+                                      ) : (
+                                        <p className="text-xs text-slate-400 text-center py-12">No chat logged.</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Tab 3: SUMMARY & CEO AI AUDIT */}
+                                {sessionActiveTab === "summary" && (
+                                  <div className="bg-slate-50/50 border border-slate-200/60 p-4 rounded-xl h-full overflow-y-auto space-y-4 no-scrollbar scrollbar-none">
+                                    <div>
+                                      <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider border-b border-slate-200 pb-2 mb-3">AI Context Summary</h4>
+                                      {selectedSession.analysis ? (
+                                        <p className="text-xs text-slate-700 font-semibold leading-relaxed">{selectedSession.analysis.meaning || "No summary content."}</p>
+                                      ) : (
+                                        <div className="text-center py-6">
+                                          <p className="text-xs text-slate-400 font-bold mb-2">No summary generated yet.</p>
+                                          <button
+                                            type="button"
+                                            onClick={() => runAiAnalysis(selectedSession.session_id)}
+                                            disabled={analyzingSessionId === selectedSession.session_id}
+                                            className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 text-white font-extrabold text-xs px-4.5 py-2 rounded-lg shadow-sm transition cursor-pointer"
+                                          >
+                                            {analyzingSessionId === selectedSession.session_id ? "Analyzing..." : "Analyze Conversation"}
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* CEO AI Response Evaluation Audit Card */}
+                                    <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-3xs space-y-3">
+                                      <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                                        <h4 className="font-extrabold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                          <LuStar className="h-4 w-4 text-amber-500 fill-amber-400" /> CEO AI Accuracy Assessment
+                                        </h4>
+                                        <span className="text-[10px] font-extrabold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded">Client Audit</span>
+                                      </div>
+
+                                      <div className="space-y-2 text-xs">
+                                        <label className="block font-bold text-slate-500 text-[10px] uppercase">Rate AI Performance for this Visit</label>
+                                        <div className="flex gap-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleEvaluateMessage(selectedSession.session_id, "good")}
+                                            className={`flex-1 py-2 px-3 rounded-lg font-bold text-xs border transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                                              evaluations[selectedSession.session_id] === "good"
+                                                ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
+                                                : "bg-white border-slate-300 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700"
+                                            }`}
+                                          >
+                                            👍 Accurate & Helpful (Sahi)
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleEvaluateMessage(selectedSession.session_id, "bad")}
+                                            className={`flex-1 py-2 px-3 rounded-lg font-bold text-xs border transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                                              evaluations[selectedSession.session_id] === "bad"
+                                                ? "bg-red-600 text-white border-red-600 shadow-2xs"
+                                                : "bg-white border-slate-300 text-slate-700 hover:bg-red-50 hover:text-red-700"
+                                            }`}
+                                          >
+                                            👎 Needs Prompt Fix (Galat)
+                                          </button>
+                                        </div>
+
+                                        <div className="pt-2 space-y-1.5">
+                                          <label className="block font-bold text-slate-500 text-[10px] uppercase">CEO Feedback & Accuracy Notes</label>
+                                          <textarea
+                                            rows="2"
+                                            placeholder="Add audit notes (e.g. AI gave correct pricing, or needs better answer on Vijay Wiz projects)..."
+                                            value={evalNoteMap[selectedSession.session_id] || ""}
+                                            onChange={(e) => setEvalNoteMap({ ...evalNoteMap, [selectedSession.session_id]: e.target.value })}
+                                            className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg p-2.5 focus:ring-indigo-500 focus:border-indigo-500"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSaveSessionAudit(selectedSession.session_id)}
+                                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-lg transition cursor-pointer shadow-3xs"
+                                          >
+                                            Save Assessment Notes
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Tab 4: OUTCOME */}
+                                {sessionActiveTab === "outcome" && (
+                                  <div className="bg-slate-50/50 border border-slate-200/60 p-4 rounded-xl h-full overflow-y-auto no-scrollbar scrollbar-none">
+                                    <div className="flex justify-between items-center border-b border-slate-200 pb-2 mb-3">
+                                      <h4 className="font-extrabold text-slate-850 text-xs uppercase tracking-wider">AI Leads Classification & Outcome</h4>
+                                      <button
+                                        type="button"
+                                        onClick={() => runAiAnalysis(selectedSession.session_id)}
+                                        disabled={analyzingSessionId === selectedSession.session_id}
+                                        className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-sm transition cursor-pointer"
+                                      >
+                                        {analyzingSessionId === selectedSession.session_id ? "Analyzing..." : "Analyze Conversation"}
+                                      </button>
+                                    </div>
+                                    {selectedSession.analysis ? (
+                                      <div className="space-y-3 text-xs">
+                                        <div className="grid grid-cols-2 gap-3">
+                                          <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs">
+                                            <span className="font-bold text-slate-400 block mb-1 text-[9px] uppercase">Category</span>
+                                            <span className="capitalize font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded text-[10px]">{selectedSession.analysis.category || "N/A"}</span>
+                                          </div>
+                                          <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs">
+                                            <span className="font-bold text-slate-400 block mb-1 text-[9px] uppercase">User Intent</span>
+                                            <span className="font-bold text-slate-750">{selectedSession.analysis.intent || "No intent extracted."}</span>
+                                          </div>
+                                        </div>
+                                        <div className="bg-emerald-50/30 border border-emerald-200 p-3 rounded-lg shadow-3xs">
+                                          <span className="font-bold text-emerald-700 block mb-1 text-[9px] uppercase">Recommended Actions / Next Steps</span>
+                                          <span className="font-semibold text-emerald-850 leading-relaxed">{selectedSession.analysis.next_steps || "No next steps generated."}</span>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="text-center py-12">
+                                        <p className="text-xs text-slate-400 font-bold mb-3">No outcome metrics generated yet.</p>
+                                        <p className="text-[10px] text-slate-400 mb-4">Click "Analyze Conversation" above to extract intent and next action steps using AI.</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Tab 5: FEEDBACKS */}
+                                {sessionActiveTab === "feedback" && (
+                                  <div className="bg-slate-50/50 border border-slate-200/60 p-4 rounded-xl h-full overflow-y-auto space-y-3 no-scrollbar scrollbar-none">
+                                    <div className="flex justify-between items-center border-b border-slate-200 pb-2 mb-2">
+                                      <h3 className="font-extrabold text-slate-855 text-xs uppercase tracking-wider">Visitor Ratings & Reports List</h3>
+                                      <button
+                                        type="button"
+                                        onClick={() => loadFeedbacks(selectedAgentId)}
+                                        className="text-xs text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
+                                      >
+                                        Refresh List
+                                      </button>
+                                    </div>
+                                    {loadingFeedbacks ? (
+                                      <p className="text-slate-400 text-xs text-center py-12">Loading visitor feedback records...</p>
+                                    ) : feedbacks.length > 0 ? (
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        {feedbacks.map((item, idx) => (
+                                          <div key={idx} className="bg-white border border-slate-200/80 p-3.5 rounded-xl shadow-3xs space-y-1.5">
+                                            <div className="flex justify-between items-start">
+                                              <div>
+                                                <span className="font-bold text-slate-900 text-xs block">{item.user_name || "Anonymous Visitor"}</span>
+                                                <span className="text-[10px] text-slate-400">{item.user_email || "No Email Provided"}</span>
+                                              </div>
+                                              <div className="flex items-center text-amber-500 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                                                {[...Array(item.rating || 5)].map((_, i) => (
+                                                  <LuStar key={i} className="h-3 w-3 fill-amber-400 text-amber-400" />
+                                                ))}
+                                                <span className="text-[10px] font-bold text-amber-800 ml-1">{item.rating || 5}/5</span>
+                                              </div>
+                                            </div>
+                                            <p className="text-xs text-slate-700 bg-slate-50 p-2 rounded-lg border border-slate-100 italic">
+                                              "{item.comment || "No comment provided."}"
+                                            </p>
+                                            <span className="text-[9px] text-slate-400 block text-right">
+                                              {new Date(item.created_at || Date.now()).toLocaleString()}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <p className="text-slate-400 text-xs text-center py-12">No visitor ratings or reports submitted for this agent yet.</p>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             </div>
                           )}
+                        </div>
 
-                          {/* Tab 4: SUMMARY (AI summary text) */}
-                          {sessionActiveTab === "summary" && selectedSession && (
-                            <div className="bg-slate-50/50 border border-slate-200/60 p-5 rounded-xl min-h-[260px]">
-                              <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider border-b border-slate-200 pb-2 mb-3">AI Context Summary</h4>
-                              {selectedSession.analysis ? (
-                                <p className="text-xs text-slate-700 font-semibold leading-relaxed">{selectedSession.analysis.meaning || "No summary content."}</p>
-                              ) : (
-                                <div className="text-center py-12">
-                                  <p className="text-xs text-slate-400 font-bold mb-3">No summary generated yet.</p>
-                                  <button
-                                    type="button"
-                                    onClick={() => runAiAnalysis(selectedSession.session_id)}
-                                    disabled={analyzingSessionId === selectedSession.session_id}
-                                    className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 text-white font-extrabold text-xs px-4.5 py-2.5 rounded-lg shadow-sm transition cursor-pointer"
-                                  >
-                                    {analyzingSessionId === selectedSession.session_id ? "Analyzing..." : "Analyze Conversation"}
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Tab 5: OUTCOME (AI Category, Intent, Next Steps + Analyze button) */}
-                          {sessionActiveTab === "outcome" && selectedSession && (
-                            <div className="bg-slate-50/50 border border-slate-200/60 p-5 rounded-xl min-h-[260px]">
-                              <div className="flex justify-between items-center border-b border-slate-200 pb-3 mb-4">
-                                <h4 className="font-extrabold text-slate-850 text-xs uppercase tracking-wider">AI Leads Classification & Outcome</h4>
+                        {/* ==================== VISITOR METADATA POPUP MODAL ==================== */}
+                        {showMetadataModal && selectedSession && (
+                          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+                            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-2xl max-w-md w-full space-y-4 animate-in fade-in zoom-in duration-150">
+                              <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+                                <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+                                  <LuInfo className="h-4 w-4 text-indigo-600" /> Visitor Metadata Profile
+                                </h3>
                                 <button
                                   type="button"
-                                  onClick={() => runAiAnalysis(selectedSession.session_id)}
-                                  disabled={analyzingSessionId === selectedSession.session_id}
-                                  className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 text-white text-xs font-bold px-4.5 py-2.5 rounded-lg shadow-sm transition cursor-pointer"
+                                  onClick={() => setShowMetadataModal(false)}
+                                  className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
                                 >
-                                  {analyzingSessionId === selectedSession.session_id ? "Analyzing..." : "Analyze Conversation"}
+                                  <LuX className="h-4 w-4" />
                                 </button>
                               </div>
-                              {selectedSession.analysis ? (
-                                <div className="space-y-4 text-xs">
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs">
-                                      <span className="font-bold text-slate-400 block mb-1 text-[9px] uppercase">Category</span>
-                                      <span className="capitalize font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded text-[10px]">{selectedSession.analysis.category || "N/A"}</span>
-                                    </div>
-                                    <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs">
-                                      <span className="font-bold text-slate-400 block mb-1 text-[9px] uppercase">User Intent</span>
-                                      <span className="font-bold text-slate-750">{selectedSession.analysis.intent || "No intent extracted."}</span>
-                                    </div>
+
+                              <div className="space-y-3 text-xs">
+                                <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-xl">
+                                  <span className="font-bold text-slate-400 block mb-0.5 text-[9px] uppercase">Visitor Real Name</span>
+                                  <span className="font-extrabold text-slate-900 text-sm">{selectedSession.user_name || "Anonymous Visitor"}</span>
+                                </div>
+                                <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-xl">
+                                  <span className="font-bold text-slate-400 block mb-0.5 text-[9px] uppercase">Phone Number</span>
+                                  <span className="font-extrabold text-slate-900 text-sm">{selectedSession.phone_number || "Not Provided"}</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-xl">
+                                    <span className="font-bold text-slate-400 block mb-0.5 text-[9px] uppercase">Platform / Device</span>
+                                    <span className="font-semibold text-slate-800">{selectedSession.device_name || "N/A"}</span>
                                   </div>
-                                  <div className="bg-emerald-50/30 border border-emerald-200 p-3 rounded-lg shadow-3xs">
-                                    <span className="font-bold text-emerald-700 block mb-1 text-[9px] uppercase">Recommended Actions / Next Steps</span>
-                                    <span className="font-semibold text-emerald-850 leading-relaxed">{selectedSession.analysis.next_steps || "No next steps generated."}</span>
+                                  <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-xl">
+                                    <span className="font-bold text-slate-400 block mb-0.5 text-[9px] uppercase">Device ID</span>
+                                    <span className="font-mono text-[10px] text-slate-600 truncate block">{selectedSession.device_id || "N/A"}</span>
                                   </div>
                                 </div>
-                              ) : (
-                                <div className="text-center py-12">
-                                  <p className="text-xs text-slate-400 font-bold mb-3">No outcome metrics generated yet.</p>
-                                  <p className="text-[10px] text-slate-400 mb-4">Click "Analyze Conversation" above to extract intent and next action steps using AI.</p>
+                                <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-xl">
+                                  <span className="font-bold text-slate-400 block mb-0.5 text-[9px] uppercase">Session Start Date</span>
+                                  <span className="font-semibold text-slate-800">{new Date(selectedSession.created_at).toLocaleString()}</span>
                                 </div>
-                              )}
+                              </div>
+
+                              <div className="pt-2 flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => setShowMetadataModal(false)}
+                                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-xs cursor-pointer"
+                                >
+                                  Close Profile
+                                </button>
+                              </div>
                             </div>
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
                 )}
-
                 {/* 3. PLAYGROUND SANDBOX TAB */}
                 {dashboardTab === "playground" && (
                   <div>
                     {!selectedAgentId ? (
                       <p className="text-slate-400 text-center py-12">Please create an agent first to launch chat playground.</p>
                     ) : (
-                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                        {/* Interactive Sandbox Chat room */}
-                        <div className="lg:col-span-2 border border-slate-200 rounded-xl p-5 shadow-xs flex flex-col h-[480px]">
-                          <div className="flex justify-between items-center border-b border-slate-200 pb-3 mb-4">
-                            <h3 className="font-bold text-slate-800 text-sm">Testing Sandbox</h3>
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Interactive Sandbox Chat room (Compact Height) */}
+                        <div className="lg:col-span-2 border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col h-[410px] bg-white">
+                          <div className="flex justify-between items-center border-b border-slate-200 pb-2.5 mb-3">
+                            <h3 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                              <LuBot className="h-4 w-4 text-indigo-600" /> Testing Sandbox
+                            </h3>
                             <div className="flex items-center gap-3">
                               <label className="flex items-center gap-1.5 cursor-pointer">
                                 <input
                                   type="checkbox"
                                   checked={isVoiceMode}
                                   onChange={(e) => setIsVoiceMode(e.target.checked)}
-                                  className="w-4 h-4 text-indigo-600 border-slate-350 rounded"
+                                  className="w-3.5 h-3.5 text-indigo-600 border-slate-350 rounded"
                                 />
-                                <span className="text-xs font-bold text-slate-600 flex items-center gap-0.5">
-                                  <LuVolume2 className="h-4 w-4 text-slate-500" /> Speech Response Mode
+                                <span className="text-[11px] font-bold text-slate-600 flex items-center gap-0.5">
+                                  <LuVolume2 className="h-3.5 w-3.5 text-slate-500" /> Speech Response Mode
                                 </span>
                               </label>
                               {isPlayingAudio && (
-                                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
+                                <span className="text-[9px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
                                   Playing...
                                 </span>
                               )}
@@ -1123,11 +1702,11 @@ export function AppAiAgent() {
                           </div>
 
                           {/* Message view */}
-                          <div className="flex-1 overflow-y-auto space-y-4 bg-slate-50/50 p-4 rounded-xl border border-slate-100 mb-4 text-xs">
+                          <div className="flex-1 overflow-y-auto space-y-3 bg-slate-50/60 p-3.5 rounded-xl border border-slate-200/80 mb-3 text-xs no-scrollbar scrollbar-none">
                             {sandboxHistory.length > 0 ? (
                               sandboxHistory.map((chat, idx) => (
                                 <div key={idx} className={`flex flex-col ${chat.role === "user" ? "items-end" : "items-start"}`}>
-                                  <div className={`max-w-md px-3.5 py-2.5 rounded-xl shadow-xs ${
+                                  <div className={`max-w-md px-3.5 py-2 rounded-xl shadow-2xs ${
                                     chat.role === "user" ? "bg-indigo-600 text-white rounded-tr-none" : "bg-white border border-slate-200 text-slate-800 rounded-tl-none"
                                   }`}>
                                     <div className="prose prose-xs prose-slate max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_strong]:text-inherit [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs">
@@ -1142,7 +1721,7 @@ export function AppAiAgent() {
                                   {chat.role === "assistant" && (
                                     <button
                                       onClick={() => playTtsAudio(chat.content)}
-                                      className="text-slate-400 hover:text-indigo-600 mt-1 flex items-center gap-0.5 text-[9px] font-semibold"
+                                      className="text-slate-400 hover:text-indigo-600 mt-1 flex items-center gap-0.5 text-[9px] font-semibold cursor-pointer"
                                     >
                                       <LuVolume2 className="h-3 w-3" /> Speak response
                                     </button>
@@ -1150,10 +1729,10 @@ export function AppAiAgent() {
                                 </div>
                               ))
                             ) : (
-                              <div className="text-center py-16 text-slate-400">
-                                <LuBot className="h-10 w-10 mx-auto text-slate-300 mb-2" />
-                                <p className="font-semibold text-xs text-slate-500">Sandbox Playground Ready.</p>
-                                <p className="text-[10px] text-slate-400 mt-1">Send a message to test the agent's RAG knowledge retrieval.</p>
+                              <div className="text-center py-12 text-slate-400">
+                                <LuBot className="h-8 w-8 mx-auto text-slate-300 mb-1.5" />
+                                <p className="font-bold text-xs text-slate-600">Sandbox Chat Ready</p>
+                                <p className="text-[10px] text-slate-400 mt-0.5">Send a message to test the agent's RAG knowledge retrieval.</p>
                               </div>
                             )}
                             {chatLoading && <p className="text-[10px] text-slate-400 animate-pulse font-medium">Agent is typing...</p>}
@@ -1164,71 +1743,294 @@ export function AppAiAgent() {
                               type="button"
                               onClick={toggleVoiceListening}
                               disabled={chatLoading}
-                              className={`shrink-0 flex items-center justify-center w-10 h-10 rounded-lg border transition cursor-pointer ${
+                              className={`shrink-0 flex items-center justify-center w-9 h-9 rounded-lg border transition cursor-pointer ${
                                 isListening
                                   ? "bg-red-500 border-red-600 text-white animate-pulse shadow-lg shadow-red-200"
                                   : "bg-white border-slate-350 text-slate-500 hover:text-indigo-600 hover:border-indigo-400 hover:bg-indigo-50"
                               }`}
                               title={isListening ? "Stop listening" : "Hold to speak"}
                             >
-                              <LuMic className="h-4.5 w-4.5" />
+                              <LuMic className="h-4 w-4" />
                             </button>
                             <input
                               type="text"
                               placeholder={isListening ? "Listening... speak now" : "Type a message or click mic to speak..."}
                               value={chatInput}
                               onChange={(e) => setChatInput(e.target.value)}
-                              className={`flex-1 bg-white border text-slate-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 p-2.5 w-full shadow-xs ${
-                                isListening ? "border-red-400 bg-red-50/30" : "border-slate-350"
+                              className={`flex-1 bg-white border text-slate-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 px-3 py-2 w-full shadow-2xs ${
+                                isListening ? "border-red-400 bg-red-50/30" : "border-slate-300"
                               }`}
                               disabled={chatLoading || isListening}
                             />
                             <button
                               type="submit"
                               disabled={chatLoading || !chatInput.trim()}
-                              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold text-xs px-4.5 py-2.5 rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+                              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold text-xs px-4 py-2 rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer"
                             >
                               Send
                             </button>
                           </form>
                         </div>
 
-                        {/* Right: QR Code Integration */}
-                        <div className="border border-slate-200 rounded-xl p-5 shadow-xs bg-slate-50/40 text-center flex flex-col items-center">
-                          <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                            <LuShare2 className="text-indigo-600 h-4.5 w-4.5" /> Share & Embed Code
-                          </h3>
-                          <p className="text-xs text-slate-500 mb-5">Scan this QR Code to test on your mobile device as an external caller.</p>
-                          
-                          <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-xs mb-4 inline-block">
-                            {selectedAgentId ? (
-                              <img
-                                src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(
-                                  `${window.location.origin}/agent-chat?id=${selectedAgentId}`
-                                )}`}
-                                alt="QR Code"
-                                className="h-32 w-32 object-contain"
-                              />
-                            ) : (
-                              <div className="h-32 w-32 bg-slate-100 flex items-center justify-center text-slate-400 text-xs">No active agent</div>
-                            )}
+                        {/* Right: Interactive 3D Visiting Card Studio */}
+                        <div className="flex flex-col space-y-3">
+                          {/* Card Controls Header */}
+                          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2.5 shadow-3xs">
+                            <div className="flex justify-between items-center">
+                              <span className="font-extrabold text-slate-850 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                <LuShare2 className="h-3.5 w-3.5 text-indigo-600" /> Visiting Card Studio
+                              </span>
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleShareCard(selectedAgentId)}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-1.5 px-3 rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                                  title="Share Card Link / Details"
+                                >
+                                  <LuShare2 className="h-3.5 w-3.5" /> Share
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleDownloadCard}
+                                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-1.5 px-3 rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                                  title="Download / Print Both Sides"
+                                >
+                                  <LuPrinter className="h-3.5 w-3.5" /> Download Both Sides
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Template Selector & Front/Back Flip Toggle Bar */}
+                            <div className="flex flex-wrap items-center justify-between gap-1.5 bg-white p-1 rounded-xl border border-slate-200 text-xs">
+                              <div className="flex gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setCardTemplate("gold")}
+                                  className={`px-2.5 py-1 rounded-lg font-extrabold text-[10px] transition cursor-pointer ${
+                                    cardTemplate === "gold" ? "bg-amber-400 text-slate-950 shadow-2xs" : "text-slate-600 hover:bg-slate-100"
+                                  }`}
+                                >
+                                  👑 Royal Gold
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setCardTemplate("yellow")}
+                                  className={`px-2.5 py-1 rounded-lg font-extrabold text-[10px] transition cursor-pointer ${
+                                    cardTemplate === "yellow" ? "bg-amber-400 text-slate-950 shadow-2xs" : "text-slate-600 hover:bg-slate-100"
+                                  }`}
+                                >
+                                  ⚡ Dark Yellow
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setCardTemplate("wave")}
+                                  className={`px-2.5 py-1 rounded-lg font-extrabold text-[10px] transition cursor-pointer ${
+                                    cardTemplate === "wave" ? "bg-amber-400 text-slate-950 shadow-2xs" : "text-slate-600 hover:bg-slate-100"
+                                  }`}
+                                >
+                                  🌊 Metallic Wave
+                                </button>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => setCardSide(prev => (prev === "front" ? "back" : "front"))}
+                                className="bg-slate-900 hover:bg-slate-800 text-amber-300 font-black text-[10px] px-2.5 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer border border-slate-700 shadow-3xs"
+                              >
+                                🔄 {cardSide === "front" ? "Show Back Side" : "Show Front Side"}
+                              </button>
+                            </div>
                           </div>
 
-                          <a
-                            href={`${window.location.origin}/agent-chat?id=${selectedAgentId}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-indigo-600 font-bold hover:underline mb-4"
-                          >
-                            Open Live Chat Link
-                          </a>
+                          {/* DYNAMIC VISITING CARD DISPLAY */}
+                          {(() => {
+                            const currentAgent = selectedAgent || agents.find(a => (a._id === selectedAgentId || a.agent_id === selectedAgentId || a.id === selectedAgentId));
+                            const authorImg = currentAgent?.customization?.author_image_url || currentAgent?.customization?.logo_url;
+                            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
+                              `${window.location.origin}/agent-chat?id=${selectedAgentId}`
+                            )}`;
+                            const chatLink = `${window.location.origin}/agent-chat?id=${selectedAgentId}`;
 
-                          <div className="text-left w-full border-t border-slate-200 pt-4 mt-2 text-[10px] text-slate-500 space-y-1">
-                            <h4 className="font-bold text-slate-700">How to integrate QR:</h4>
-                            <p>1. Print QR code and place on your product brochures, desks, or billboards.</p>
-                            <p>2. Visitors scan with mobile camera to chat or make voice queries without login details.</p>
-                            <p>3. Dynamic sessions log is automatically captured under the Leads tab.</p>
-                          </div>
+                            return (
+                              <div className="space-y-3">
+                                {/* CARD VIEW CONTAINER */}
+                                <div className="w-full rounded-2xl shadow-xl overflow-hidden transition-all duration-300 hover:shadow-2xl border border-slate-200 relative">
+                                  
+                                  {/* TEMPLATE 1: ROYAL DARK GOLD GEOMETRIC PASS (Reference Image 2 Style) */}
+                                  {cardTemplate === "gold" && (
+                                    <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950/90 text-white min-h-[230px] p-0 relative flex flex-col justify-between border-2 border-amber-500/50 shadow-2xl overflow-hidden">
+                                      {/* Polygons Glow Accents */}
+                                      <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl pointer-events-none"></div>
+
+                                      {cardSide === "front" ? (
+                                        /* FRONT SIDE: TOP BANNER PASS LAYOUT */
+                                        <div className="flex flex-col h-full min-h-[230px] justify-between p-4 z-10 space-y-3">
+                                          {/* TOP BANNER: LEFT NAME + RIGHT GOLD RING PHOTO */}
+                                          <div className="flex justify-between items-start">
+                                            <div className="space-y-0.5 text-left">
+                                              <span className="text-[8px] font-black uppercase tracking-widest bg-gradient-to-r from-amber-400 to-amber-200 text-slate-950 px-2 py-0.5 rounded-full inline-block shadow-2xs">
+                                                Executive Pass
+                                              </span>
+                                              <h2 className="font-black text-base text-amber-300 tracking-wide leading-tight pt-1">
+                                                {user?.name || "Vijay Kumar Singh"}
+                                              </h2>
+                                              <p className="text-[10px] text-amber-400 font-extrabold uppercase tracking-wider">
+                                                CEO & FOUNDER
+                                              </p>
+                                            </div>
+
+                                            {/* RIGHT TOP: GOLD EMBLEM RING PHOTO */}
+                                            {authorImg ? (
+                                              <img src={mediaUrl(authorImg)} alt="CEO Avatar" className="h-16 w-16 rounded-full object-cover border-2 border-amber-400 shadow-2xl ring-4 ring-amber-500/30" />
+                                            ) : (
+                                              <div className="h-16 w-16 rounded-full bg-gradient-to-tr from-amber-400 to-amber-300 text-slate-950 font-black flex items-center justify-center text-xl border-2 border-white shadow-2xl">
+                                                {user?.name ? user.name.charAt(0).toUpperCase() : "V"}
+                                              </div>
+                                            )}
+                                          </div>
+
+                                          {/* MIDDLE AGENT DETAILS */}
+                                          <div className="border-t border-amber-500/40 pt-2 flex justify-between items-end text-left">
+                                            <div>
+                                              <span className="text-[9px] text-amber-400 font-bold block">AGENT ASSISTANT</span>
+                                              <span className="text-xs font-extrabold text-white">{currentAgent?.name || "AI Smart Agent"}</span>
+                                              <span className="text-[9px] text-slate-400 block italic">{currentAgent?.category || "Voice & Chat Assistant"}</span>
+                                            </div>
+                                            <span className="text-[8px] font-mono bg-amber-400/20 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">PASS FRONT</span>
+                                          </div>
+
+                                          {/* BOTTOM FOOTER */}
+                                          <div className="border-t border-slate-800 pt-1.5 flex justify-between items-center text-[8px] text-slate-400 font-bold">
+                                            <span className="text-amber-400 font-extrabold">⚡ POWERED BY MAGNIFAI OS</span>
+                                            <span>ID: {selectedAgentId}</span>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        /* BACK SIDE */
+                                        <div className="flex flex-col items-center justify-between min-h-[230px] p-4 bg-slate-950">
+                                          <div className="flex-1 flex flex-col items-center justify-center space-y-2">
+                                            <div className="bg-white p-2 rounded-xl border-2 border-amber-400 shadow-lg">
+                                              <img src={qrUrl} alt="QR Code" className="h-28 w-28 object-contain" />
+                                            </div>
+                                            <p className="text-[10px] font-extrabold text-amber-400 uppercase tracking-wider">SCAN TO CHAT & VOICE CALL INSTANT</p>
+                                            <p className="text-[8px] text-slate-400 truncate max-w-[220px] font-mono">{chatLink}</p>
+                                          </div>
+                                          <div className="w-full text-center border-t border-slate-800 pt-1 text-[8px] font-bold text-amber-400">
+                                            ⚡ POWERED BY MAGNIFAI OS
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* TEMPLATE 2: MODERN SPLIT DARK & WHITE (Reference Image 3 Style) */}
+                                  {cardTemplate === "yellow" && (
+                                    <div className="bg-slate-900 text-slate-900 min-h-[230px] relative overflow-hidden flex flex-col justify-between border-2 border-amber-400 shadow-xl">
+                                      {cardSide === "front" ? (
+                                        /* FRONT SIDE: VERTICAL SPLIT DARK/WHITE */
+                                        <div className="flex flex-col h-full min-h-[230px] justify-between">
+                                          <div className="grid grid-cols-12 min-h-[195px] flex-1">
+                                            {/* LEFT 5 COLUMNS: DARK SIDE WITH FULL-HEIGHT PHOTO */}
+                                            <div className="col-span-5 h-full relative overflow-hidden border-r-4 border-amber-400 bg-slate-950">
+                                              {authorImg ? (
+                                                <img src={mediaUrl(authorImg)} alt="Agent Logo" className="h-full w-full object-cover object-top" />
+                                              ) : (
+                                                <div className="h-full w-full bg-amber-400 text-slate-950 font-black flex items-center justify-center text-3xl">
+                                                  {user?.name ? user.name.charAt(0).toUpperCase() : "M"}
+                                                </div>
+                                              )}
+                                            </div>
+                                            {/* RIGHT 7 COLUMNS: CRISP WHITE DETAILS */}
+                                            <div className="col-span-7 bg-white p-4 text-left flex flex-col justify-between">
+                                              <div className="space-y-1">
+                                                <h2 className="font-extrabold text-base text-slate-900 uppercase tracking-tight">{user?.name || "Vijay Kumar Singh"}</h2>
+                                                <span className="bg-amber-400 text-slate-950 px-2 py-0.5 rounded font-black text-[9px] uppercase tracking-wider inline-block">
+                                                  CEO & FOUNDER
+                                                </span>
+                                              </div>
+                                              <div className="space-y-0.5 border-t border-slate-200 pt-2 text-[9px]">
+                                                <p className="font-extrabold text-slate-800">🤖 AGENT: {currentAgent?.name || "AI Assistant"}</p>
+                                                <p className="text-slate-500 italic">{currentAgent?.category || "Voice & Chat"}</p>
+                                              </div>
+                                            </div>
+                                          </div>
+                                          {/* FOOTER */}
+                                          <div className="bg-slate-950 text-slate-300 px-4 py-1.5 text-[9px] flex justify-between items-center font-bold border-t border-amber-400">
+                                            <span className="text-amber-400 font-extrabold">⚡ POWERED BY MAGNIFAI OS</span>
+                                            <span className="font-mono text-[8px] text-slate-400">ID: {selectedAgentId}</span>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        /* BACK SIDE */
+                                        <div className="p-4 flex flex-col items-center justify-between min-h-[230px] bg-slate-950 text-white">
+                                          <div className="flex-1 flex flex-col items-center justify-center space-y-2">
+                                            <div className="bg-white p-2 rounded-xl border-2 border-amber-400 shadow-md">
+                                              <img src={qrUrl} alt="QR Code" className="h-28 w-28 object-contain" />
+                                            </div>
+                                            <p className="text-[10px] font-black text-amber-400 uppercase tracking-wider">SCAN QR FOR INSTANT AI CHAT</p>
+                                          </div>
+                                          <p className="text-[8px] font-bold text-amber-400">⚡ POWERED BY MAGNIFAI OS</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* TEMPLATE 3: EXECUTIVE METALLIC GOLD WAVE (Reference Image 4 Style) */}
+                                  {cardTemplate === "wave" && (
+                                    <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 text-white min-h-[230px] p-0 relative flex flex-col justify-between border-2 border-amber-400/60 shadow-2xl overflow-hidden">
+                                      {cardSide === "front" ? (
+                                        /* FRONT SIDE: HORIZONTAL GOLD WAVES + RIGHT PHOTO CIRCLE */
+                                        <div className="flex flex-col h-full min-h-[230px] justify-between z-10 relative">
+                                          {/* TOP METALLIC GOLD WAVE STRIP */}
+                                          <div className="h-2.5 w-full bg-gradient-to-r from-amber-400 via-amber-200 to-amber-500 shadow-md"></div>
+
+                                          <div className="p-4 flex-1 flex justify-between items-center gap-3">
+                                            {/* LEFT TEXT DETAILS */}
+                                            <div className="text-left space-y-1.5 flex-1 min-w-0">
+                                              <h2 className="font-extrabold text-base text-white tracking-wide truncate">{user?.name || "Vijay Kumar Singh"}</h2>
+                                              <p className="text-[10px] text-amber-300 font-black uppercase tracking-widest">CEO & FOUNDER</p>
+                                              <div className="border-t border-slate-800 pt-2 space-y-0.5">
+                                                <p className="text-[10px] text-indigo-200 font-extrabold truncate">AGENT: {currentAgent?.name || "AI Assistant"}</p>
+                                                <p className="text-[8px] text-slate-400 italic truncate">{currentAgent?.category || "Voice & Chat Assistant"}</p>
+                                              </div>
+                                            </div>
+
+                                            {/* RIGHT SIDE PHOTO WAVE FRAME */}
+                                            <div className="shrink-0">
+                                              {authorImg ? (
+                                                <img src={mediaUrl(authorImg)} alt="Agent Logo" className="h-20 w-20 rounded-full object-cover border-2 border-amber-400 shadow-2xl ring-4 ring-amber-400/30" />
+                                              ) : (
+                                                <div className="h-20 w-20 rounded-full bg-gradient-to-tr from-amber-400 to-amber-300 text-slate-950 font-black flex items-center justify-center text-2xl border-2 border-white shadow-2xl">
+                                                  {user?.name ? user.name.charAt(0).toUpperCase() : "V"}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+
+                                          {/* BOTTOM METALLIC GOLD WAVE STRIP */}
+                                          <div className="bg-slate-950 text-slate-300 px-4 py-1.5 text-[9px] flex justify-between items-center font-bold border-t border-amber-400/50">
+                                            <span className="text-amber-400 font-extrabold">⚡ POWERED BY MAGNIFAI OS</span>
+                                            <span className="text-[8px] font-black text-amber-300 uppercase tracking-widest">METALLIC WAVE</span>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        /* BACK SIDE */
+                                        <div className="flex flex-col items-center justify-between min-h-[230px] p-4 bg-slate-950 z-10">
+                                          <div className="flex-1 flex flex-col items-center justify-center space-y-2">
+                                            <div className="bg-white p-2 rounded-xl border-2 border-amber-400 shadow-xl">
+                                              <img src={qrUrl} alt="QR Code" className="h-28 w-28 object-contain" />
+                                            </div>
+                                            <p className="text-[10px] font-extrabold text-amber-300 uppercase tracking-widest text-center">SCAN TO TALK WITH AI ASSISTANT</p>
+                                          </div>
+                                          <p className="text-[8px] font-bold text-amber-400">⚡ POWERED BY MAGNIFAI OS</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     )}

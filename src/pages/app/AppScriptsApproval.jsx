@@ -103,7 +103,7 @@ export function AppScriptsApproval() {
     setTitle("");
     setBody("");
     setDescription("");
-    setCategory(CATEGORIES[0]);
+    setCategory(dynamicCategories.length > 0 ? dynamicCategories[0] : "Spiritual");
     setDuration("45s");
     setScheduledAt(getLocalDateTimeString(new Date()));
     setImageFile(null);
