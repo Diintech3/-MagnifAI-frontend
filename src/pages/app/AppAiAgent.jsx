@@ -394,7 +394,7 @@ export function AppAiAgent() {
   async function handleShareCard(agentId) {
     const userName = user?.name || "CEO";
     const targetAgentId = agentId || selectedAgentId;
-    const cardUrl = `${window.location.origin}/agent-chat?id=${targetAgentId}`;
+    const cardUrl = `https://test.3rdai.co/agent-chat?id=${targetAgentId}`;
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(cardUrl)}`;
     const cardData = { userName, template: cardTemplate, qrUrl, chatLink: cardUrl };
 
@@ -455,9 +455,9 @@ export function AppAiAgent() {
   async function handleDownloadCard() {
     const userName = user?.name || "CEO";
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(
-      `${window.location.origin}/agent-chat?id=${selectedAgentId}`
+      `https://test.3rdai.co/agent-chat?id=${selectedAgentId}`
     )}`;
-    const chatLink = `${window.location.origin}/agent-chat?id=${selectedAgentId}`;
+    const chatLink = `https://test.3rdai.co/agent-chat?id=${selectedAgentId}`;
     const cardData = { userName, template: cardTemplate, qrUrl, chatLink };
 
     await downloadCardSide("front", cardData);
@@ -2381,9 +2381,9 @@ export function AppAiAgent() {
                             const currentAgent = selectedAgent || agents.find(a => (a._id === selectedAgentId || a.agent_id === selectedAgentId || a.id === selectedAgentId));
                             const authorImg = currentAgent?.customization?.author_image_url || currentAgent?.customization?.logo_url;
                             const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
-                              `${window.location.origin}/agent-chat?id=${selectedAgentId}`
+                              `https://test.3rdai.co/agent-chat?id=${selectedAgentId}`
                             )}`;
-                            const chatLink = `${window.location.origin}/agent-chat?id=${selectedAgentId}`;
+                            const chatLink = `https://test.3rdai.co/agent-chat?id=${selectedAgentId}`;
 
                             return (
                               <div className="space-y-3">

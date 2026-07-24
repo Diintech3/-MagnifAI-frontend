@@ -30,6 +30,7 @@ import { AppPersonalAIComingSoon } from "./app/AppPersonalAIComingSoon";
 import { AppScriptsApproval } from "./app/AppScriptsApproval";
 import { CategoryManagement } from "./app/CategoryManagement";
 import { AppAiAgent } from "./app/AppAiAgent";
+import { AppDailyPlanner } from "./app/AppDailyPlanner";
 
 // ── Nav configs ────────────────────────────────────────────────────────────────
 
@@ -37,6 +38,7 @@ const FC_NAV = [
   { to: "/app",               label: "Overview",     headerTitle: "Overview",             end: true, icon: "overview" },
   { to: "/app/personality",   label: "Personality",  headerTitle: "Personality Profile",   icon: "candidates" },
   { to: "/app/personal-ai",   label: "Personal AI",  headerTitle: "Personal AI Copilot",   icon: "aiGenerator" },
+  { to: "/app/daily-planner", label: "Daily Planner", headerTitle: "Daily Planner",         icon: "calendar" },
   { to: "/app/ai-agent",      label: "AI Agent",     headerTitle: "AI Agent Management",   icon: "bot" },
   { to: "/app/popularity",    label: "Popularity",   headerTitle: "CEO Popularity Index", icon: "popularity" },
   { to: "/app/tools",         label: "Tools",        headerTitle: "Tools Hub",            icon: "matrix" },
@@ -191,6 +193,7 @@ export function AppDashboard() {
         <Route path="ugc-prompter"     element={<AppScriptsApproval />} />
         <Route path="personality"      element={<AppPersonalityComingSoon />} />
         <Route path="personal-ai"      element={<AppPersonalAIComingSoon />} />
+        <Route path="daily-planner"    element={<AppDailyPlanner />} />
         <Route path="ai-agent"         element={<AppAiAgent />} />
         <Route path="help"             element={<HelpPage />} />
         <Route path="*"                element={<Navigate to={basePath} replace />} />
