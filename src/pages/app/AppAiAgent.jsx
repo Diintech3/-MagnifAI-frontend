@@ -86,7 +86,7 @@ export function AppAiAgent() {
   const [agents, setAgents] = useState([]);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedAgent, setSelectedAgent] = useState(null);
-  
+
   // Navigation Modes
   const [viewMode, setViewMode] = useState("dashboard"); // dashboard | form
   const [dashboardTab, setDashboardTab] = useState("overview"); // overview | logs | playground
@@ -181,18 +181,115 @@ export function AppAiAgent() {
   // CEO AI Quality & Accuracy Audit State
   const [evaluations, setEvaluations] = useState({});
   const [evalNoteMap, setEvalNoteMap] = useState({});
+  const [deviceAnalysis, setDeviceAnalysis] = useState(null);
+  const [analyzingDevice, setAnalyzingDevice] = useState(false);
+  const [auditSubTab, setAuditSubTab] = useState("feedback"); // "feedback" | "report"
+  const [sessionDropOpen, setSessionDropOpen] = useState(false);
 
-  function handleEvaluateMessage(msgId, status) {
-    setEvaluations(prev => ({ ...prev, [msgId]: status }));
-    if (status === "good") {
-      toastSuccess("Marked AI response as Accurate (Sahi Jawab) 👍");
-    } else {
-      toastSuccess("Marked AI response as Inaccurate / Needs Prompt Fix 👎");
+  async function runDeviceAnalysis(deviceId) {
+    if (!selectedAgentId || !deviceId) return;
+    setAnalyzingDevice(true);
+    setDeviceAnalysis(null);
+    try {
+      const data = await api("/api/agents/sessions/analyze-device", {
+        method: "POST",
+        token,
+        body: { agent_id: selectedAgentId, device_id: deviceId }
+      });
+      toastSuccess("Visitor holistic analysis complete!");
+      setDeviceAnalysis(data);
+    } catch (e) {
+      toastFromError(e, "Failed to analyze visitor device");
+    } finally {
+      setAnalyzingDevice(false);
     }
   }
 
-  function handleSaveSessionAudit(sessionId) {
-    toastSuccess("CEO AI Accuracy Audit & Notes saved for this session! 🎯");
+  async function handleEvaluateMessage(msgId, status) {
+    setEvaluations(prev => ({ ...prev, [msgId]: status }));
+    if (status === "good") {
+      toastSuccess("Marked AI response as Accurate (Nice Job) 👍");
+    } else {
+      toastSuccess("Marked AI response as Inaccurate / Needs Prompt Fix 👎");
+    }
+
+    try {
+      let sessId = msgId;
+      let msgDetails = "";
+      if (msgId.includes("_")) {
+        const [sId, idxStr] = msgId.split("_");
+        sessId = sId;
+        const idx = parseInt(idxStr, 10);
+        const chatMsg = chatHistory[idx];
+        const contentSnippet = chatMsg ? chatMsg.content.slice(0, 150) : "";
+        msgDetails = ` | Msg Index: ${idx} | Answer: "${contentSnippet}"`;
+      }
+
+      await api(`/api/agents/${selectedAgentId}/feedback`, {
+        method: "POST",
+        token,
+        body: {
+          feedback_type: "feedback",
+          rating: status === "good" ? 5 : 1,
+          comment: `Accuracy Evaluation${msgDetails} | Status: ${status === "good" ? "Sahi Jawab" : "Need to improve"}`,
+          session_id: sessId,
+          device_id: selectedSession?.device_id || ""
+        }
+      });
+      if (selectedAgentId) {
+        loadFeedbacks(selectedAgentId);
+      }
+    } catch (e) {
+      console.error("[evaluate-api-error]", e);
+    }
+  }
+
+  async function handleSaveSessionAudit(sessionId, type = "feedback") {
+    const notesText = evalNoteMap[sessionId] || "";
+    
+    // Validation for Report
+    if (type === "report" && !notesText.trim()) {
+      toastSuccess("Please add some report comments/notes first! 🚨");
+      return;
+    }
+    
+    // Validation for Feedback
+    if (type === "feedback" && !notesText.trim() && !evaluations[sessionId]) {
+      toastSuccess("Please select a star rating or write some assessment notes first! 🎯");
+      return;
+    }
+
+    try {
+      const overallRating = type === "feedback"
+        ? (evaluations[sessionId] || 5)
+        : undefined;
+
+      const defaultComment = type === "feedback"
+        ? `Accuracy Evaluation | Rated: ${overallRating}/5 Stars`
+        : "CEO Audit Report";
+
+      await api(`/api/agents/${selectedAgentId}/feedback`, {
+        method: "POST",
+        token,
+        body: {
+          feedback_type: type,
+          rating: overallRating,
+          comment: notesText.trim() || defaultComment,
+          session_id: sessionId,
+          device_id: selectedSession?.device_id || ""
+        }
+      });
+      if (type === "feedback") {
+        toastSuccess("CEO AI Accuracy Audit & Notes saved to external API! 🎯");
+      } else {
+        toastSuccess("CEO AI Audit Report saved to external API! 🚨");
+      }
+      if (selectedAgentId) {
+        loadFeedbacks(selectedAgentId);
+      }
+    } catch (e) {
+      toastFromError(e, `Failed to save CEO audit ${type} to external API`);
+    }
   }
 
   // Visiting Card Customization State
@@ -337,7 +434,7 @@ export function AppAiAgent() {
         });
         toastSuccess("Visiting Card link shared!");
         return;
-      } catch (err) {}
+      } catch (err) { }
     }
 
     navigator.clipboard.writeText(shareMsg);
@@ -371,8 +468,10 @@ export function AppAiAgent() {
     }, 500);
   }
 
+  const [contactFilter, setContactFilter] = useState("all"); // "all" | "whatsapp" | "web"
+
   // Compute grouped contact list by identity key (Device ID > Phone > Real Name)
-  const groupedContacts = (() => {
+  const allContacts = (() => {
     if (!Array.isArray(sessions) || sessions.length === 0) return [];
     const map = {};
 
@@ -443,16 +542,35 @@ export function AppAiAgent() {
       group.sessions.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
     });
 
-    let list = Object.values(map).sort((a, b) => new Date(b.last_active) - new Date(a.last_active));
+    return Object.values(map).sort((a, b) => new Date(b.last_active) - new Date(a.last_active));
+  })();
+
+  const filteredSearchContacts = (() => {
+    let list = allContacts;
     if (contactSearchTerm.trim()) {
       const q = contactSearchTerm.toLowerCase();
-      list = list.filter(c => c.user_name.toLowerCase().includes(q) || c.phone_number.toLowerCase().includes(q) || c.device_name.toLowerCase().includes(q));
+      list = list.filter(c => c.user_name.toLowerCase().includes(q) || c.phone_number.toLowerCase().includes(q) || c.device_name.toLowerCase().includes(q) || String(c.device_id).toLowerCase().includes(q));
+    }
+    return list;
+  })();
+
+  const whatsappCount = allContacts.filter(c => String(c.device_name).toLowerCase().includes("whatsapp")).length;
+  const webCount = allContacts.length - whatsappCount;
+  const totalCount = allContacts.length;
+
+  const groupedContacts = (() => {
+    let list = filteredSearchContacts;
+    if (contactFilter === "whatsapp") {
+      list = list.filter(c => String(c.device_name).toLowerCase().includes("whatsapp"));
+    } else if (contactFilter === "web") {
+      list = list.filter(c => !String(c.device_name).toLowerCase().includes("whatsapp"));
     }
     return list;
   })();
 
   function handleContactSelect(contact) {
     setSelectedContactKey(contact.key);
+    setDeviceAnalysis(null);
     if (contact.sessions && contact.sessions.length > 0) {
       handleSessionSelect(contact.sessions[0]);
     }
@@ -468,12 +586,16 @@ export function AppAiAgent() {
   const audioRef = useRef(null);
   const recognitionRef = useRef(null);
 
-  // Load all agents
+  // Load all agents (excluding Personal Assistant / Root_assistant)
   async function loadAgents(selectFirst = false) {
     setLoading(true);
     try {
       const data = await api("/api/agents", { token });
-      const list = data || [];
+      const list = (data || []).filter(a => {
+        const nameLower = (a.name || "").toLowerCase();
+        const catLower = (a.category || "").toLowerCase();
+        return !nameLower.includes("personal assistant") && catLower !== "root_assistant";
+      });
       setAgents(list);
       if (list.length > 0) {
         if (selectFirst || !selectedAgentId) {
@@ -535,13 +657,21 @@ export function AppAiAgent() {
     }
   }
 
-  // Load visitor feedback & ratings list
   async function loadFeedbacks(id) {
     if (!id) return;
     setLoadingFeedbacks(true);
     try {
       const data = await api(`/api/agents/${id}/feedback`, { token });
-      setFeedbacks(data || []);
+      const filtered = (data || []).filter(item => {
+        const comment = (item.comment || "").toLowerCase();
+        const email = (item.user_email || "").toLowerCase();
+        const name = (item.user_name || "").toLowerCase();
+        const isCeoEmail = email === "vijay.wiz@gmail.com" || email === "ceo@admin.com";
+        const isAccuracyEval = comment.includes("accuracy evaluation");
+        const isCeoAuditName = name.includes("ceo audit");
+        return !isCeoEmail && !isAccuracyEval && !isCeoAuditName;
+      });
+      setFeedbacks(filtered);
     } catch (e) {
       console.error(e);
     } finally {
@@ -722,7 +852,7 @@ export function AppAiAgent() {
         setChatInput(transcript.trim());
         // Auto-send the voice message
         setTimeout(() => {
-          const fakeEvent = { preventDefault: () => {} };
+          const fakeEvent = { preventDefault: () => { } };
           // We set chatInput above, but since state is async, we directly trigger
           const userMsg = transcript.trim();
           setChatLoading(true);
@@ -770,7 +900,7 @@ export function AppAiAgent() {
   function enterCreateMode() {
     setFormMode("create");
     setFormActiveTab("message");
-    
+
     // Clear form fields
     setFormName("");
     setFormDesc("");
@@ -1098,7 +1228,7 @@ export function AppAiAgent() {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 min-h-[calc(100dvh-3.5rem)] text-slate-800 p-3 sm:p-4 md:p-6">
-      
+
       {viewMode === "dashboard" ? (
         /* ==================== VIEW 1: DASHBOARD MODE ==================== */
         <div>
@@ -1137,11 +1267,10 @@ export function AppAiAgent() {
                 <button
                   key={tab.id}
                   onClick={() => setDashboardTab(tab.id)}
-                  className={`flex items-center gap-2 px-4 sm:px-6 py-3 sm:py-4 border-b-2 font-bold text-xs sm:text-sm text-nowrap shrink-0 transition-colors duration-150 ${
-                    active
-                      ? "border-indigo-600 text-indigo-600 bg-indigo-50/10"
-                      : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
-                  }`}
+                  className={`flex items-center gap-2 px-4 sm:px-6 py-3 sm:py-4 border-b-2 font-bold text-xs sm:text-sm text-nowrap shrink-0 transition-colors duration-150 ${active
+                    ? "border-indigo-600 text-indigo-600 bg-indigo-50/10"
+                    : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+                    }`}
                 >
                   <Icon className={`h-4.5 sm:h-5 w-4.5 sm:w-5 ${active ? "text-indigo-600" : "text-slate-400"}`} />
                   {tab.label}
@@ -1156,7 +1285,7 @@ export function AppAiAgent() {
               <div className="flex items-center justify-center p-12"><p className="text-slate-400 font-bold">Loading agent profile...</p></div>
             ) : (
               <div>
-                
+
                 {/* 1. OVERVIEW TABS */}
                 {dashboardTab === "overview" && (
                   <div>
@@ -1254,11 +1383,11 @@ export function AppAiAgent() {
                       <p className="text-slate-400 text-center py-12">Please create an agent first to view logs.</p>
                     ) : (
                       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-[600px]">
-                        
+
                         {/* ==================== LEFT PANEL: WHATSAPP-STYLE VISITOR CONTACTS LIST ==================== */}
                         <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl shadow-xs flex flex-col h-full overflow-hidden">
                           {/* Header & Search Bar */}
-                          <div className="p-3 border-b border-slate-200 bg-slate-50/70 space-y-2">
+                          <div className="p-3 border-b border-slate-200 bg-slate-50/70 space-y-2.5">
                             <div className="flex justify-between items-center">
                               <h3 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
                                 <LuUsers className="h-4 w-4 text-indigo-600" /> Visitor Contacts ({groupedContacts.length})
@@ -1267,7 +1396,7 @@ export function AppAiAgent() {
                                 {sessions.length} Total
                               </span>
                             </div>
-                            
+
                             <div className="relative">
                               <LuSearch className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
                               <input
@@ -1278,7 +1407,34 @@ export function AppAiAgent() {
                                 className="w-full bg-white border border-slate-200 text-slate-700 text-xs rounded-lg pl-8 pr-3 py-1.5 shadow-2xs focus:ring-indigo-500 focus:border-indigo-500"
                               />
                             </div>
-                          </div>                          {/* Contact Items List */}
+
+                            {/* Segment Switch to toggle WhatsApp vs Web Agent */}
+                            <div className="flex bg-slate-150 p-0.5 rounded-lg text-[9.5px] font-extrabold">
+                              <button
+                                type="button"
+                                onClick={() => setContactFilter("all")}
+                                className={`flex-1 py-1 rounded-md transition text-center cursor-pointer ${contactFilter === "all" ? "bg-white text-indigo-600 shadow-3xs" : "text-slate-500 hover:text-slate-800"}`}
+                              >
+                                All ({totalCount})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setContactFilter("whatsapp")}
+                                className={`flex-1 py-1 rounded-md transition text-center cursor-pointer ${contactFilter === "whatsapp" ? "bg-white text-emerald-650 shadow-3xs" : "text-slate-500 hover:text-slate-800"}`}
+                              >
+                                WhatsApp ({whatsappCount})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setContactFilter("web")}
+                                className={`flex-1 py-1 rounded-md transition text-center cursor-pointer ${contactFilter === "web" ? "bg-white text-indigo-650 shadow-3xs" : "text-slate-500 hover:text-slate-800"}`}
+                              >
+                                Web Agent ({webCount})
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Contact Items List */}
                           <div className="flex-1 overflow-y-auto divide-y divide-slate-100 no-scrollbar scrollbar-none">
                             {groupedContacts.length > 0 ? (
                               groupedContacts.map((contact) => {
@@ -1289,15 +1445,23 @@ export function AppAiAgent() {
                                   <div
                                     key={contact.key}
                                     onClick={() => handleContactSelect(contact)}
-                                    className={`p-3 cursor-pointer transition flex items-start gap-2.5 ${
-                                      isSelected ? "bg-indigo-50/70 border-l-4 border-l-indigo-600 shadow-2xs" : "hover:bg-slate-50"
-                                    }`}
+                                    className={`p-3 cursor-pointer transition flex items-start gap-2.5 ${isSelected ? "bg-indigo-50/70 border-l-4 border-l-indigo-600 shadow-2xs" : "hover:bg-slate-50"
+                                      }`}
                                   >
                                     {/* Avatar circle */}
-                                    <div className={`h-8 w-8 rounded-full shrink-0 flex items-center justify-center font-extrabold text-xs shadow-2xs ${
-                                      isRealName ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-600"
-                                    }`}>
-                                      {isRealName ? contact.user_name.charAt(0).toUpperCase() : <LuUsers className="h-3.5 w-3.5" />}
+                                    <div className={`h-8 w-8 rounded-full shrink-0 flex items-center justify-center font-extrabold text-xs shadow-2xs ${String(contact.device_name).toLowerCase().includes("whatsapp")
+                                      ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                                      : isRealName
+                                        ? "bg-indigo-600 text-white"
+                                        : "bg-slate-200 text-slate-600"
+                                      }`}>
+                                      {String(contact.device_name).toLowerCase().includes("whatsapp") ? (
+                                        <LuMessageCircle className="h-4 w-4" />
+                                      ) : isRealName ? (
+                                        contact.user_name.charAt(0).toUpperCase()
+                                      ) : (
+                                        <LuUsers className="h-3.5 w-3.5" />
+                                      )}
                                     </div>
 
                                     <div className="flex-1 min-w-0">
@@ -1305,7 +1469,10 @@ export function AppAiAgent() {
                                         <h4 className={`text-xs truncate font-bold ${isRealName ? "text-slate-900" : "text-slate-650"}`}>
                                           {contact.user_name}
                                         </h4>
-                                        <span className="text-[9px] bg-indigo-100 text-indigo-800 font-extrabold px-1.5 py-0.5 rounded shrink-0 ml-1">
+                                        <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded shrink-0 ml-1 ${String(contact.device_name).toLowerCase().includes("whatsapp")
+                                          ? "bg-emerald-100 text-emerald-800"
+                                          : "bg-indigo-100 text-indigo-800"
+                                          }`}>
                                           {contact.visit_count} {contact.visit_count === 1 ? "Visit" : "Visits"}
                                         </span>
                                       </div>
@@ -1314,8 +1481,17 @@ export function AppAiAgent() {
                                         Phone: {contact.phone_number}
                                       </p>
 
+                                      {contact.device_id && (
+                                        <p className="text-[9.5px] font-mono text-slate-450 truncate mb-0.5" title={contact.device_id}>
+                                          ID: {contact.device_id}
+                                        </p>
+                                      )}
+
                                       <div className="flex justify-between items-center text-[9px] text-slate-400">
-                                        <span className="truncate">{contact.device_name}</span>
+                                        <span className={String(contact.device_name).toLowerCase().includes("whatsapp") ? "text-emerald-600 font-bold flex items-center gap-1" : "truncate"}>
+                                          {String(contact.device_name).toLowerCase().includes("whatsapp") && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block animate-pulse"></span>}
+                                          {contact.device_name}
+                                        </span>
                                         <span>{new Date(contact.last_active).toLocaleDateString()}</span>
                                       </div>
                                     </div>
@@ -1338,7 +1514,7 @@ export function AppAiAgent() {
                             </div>
                           ) : (
                             <div className="flex flex-col h-full min-h-0 space-y-3">
-                              
+
                               {/* Visitor Contact Header: Name Tap for Metadata Popup + Action Control + Timeline */}
                               <div className="flex flex-wrap items-center justify-between gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200/80 shrink-0">
                                 <div className="flex items-center gap-2.5">
@@ -1401,23 +1577,54 @@ export function AppAiAgent() {
 
                                   {/* Session Timeline Selector */}
                                   {(() => {
-                                    const currentContactGroup = groupedContacts.find(c => c.sessions.some(s => s.session_id === selectedSession.session_id)) || groupedContacts.find(c => c.key === (selectedSession.device_id || selectedSession.session_id));
+                                    const currentContactGroup = allContacts.find(c => c.sessions.some(s => s.session_id === selectedSession.session_id)) || allContacts.find(c => c.key === (selectedSession.device_id || selectedSession.session_id));
                                     const contactSessions = currentContactGroup?.sessions || [selectedSession];
+                                    const selectedIndex = contactSessions.findIndex(s => s.session_id === selectedSession.session_id);
+                                    const currentLabel = `Session ${contactSessions.length - (selectedIndex !== -1 ? selectedIndex : 0)} (${new Date(selectedSession.created_at || Date.now()).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" })})`;
                                     return (
-                                      <select
-                                        value={selectedSession.session_id}
-                                        onChange={(e) => {
-                                          const chosen = contactSessions.find(s => s.session_id === e.target.value);
-                                          if (chosen) handleSessionSelect(chosen);
-                                        }}
-                                        className="bg-white border border-slate-300 font-bold text-slate-800 text-xs rounded-lg px-2.5 py-1 shadow-2xs cursor-pointer focus:ring-indigo-500"
-                                      >
-                                        {contactSessions.map((s, idx) => (
-                                          <option key={s.session_id} value={s.session_id}>
-                                            Session {contactSessions.length - idx} ({new Date(s.created_at || Date.now()).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" })})
-                                          </option>
-                                        ))}
-                                      </select>
+                                      <div className="relative">
+                                        <button
+                                          type="button"
+                                          onClick={() => setSessionDropOpen(!sessionDropOpen)}
+                                          className="bg-white border border-slate-300 font-bold text-slate-800 text-xs rounded-lg px-3 py-1.5 shadow-3xs cursor-pointer flex items-center justify-between gap-1.5 hover:bg-slate-50 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                                        >
+                                          <span>{currentLabel}</span>
+                                          <svg className={`h-3.5 w-3.5 text-slate-400 transition-transform duration-200 ${sessionDropOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                          </svg>
+                                        </button>
+
+                                        {sessionDropOpen && (
+                                          <>
+                                            <div className="fixed inset-0 z-10" onClick={() => setSessionDropOpen(false)} />
+                                            <div className="absolute right-0 mt-1.5 w-60 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1 max-h-48 overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-100">
+                                              {contactSessions.map((s, idx) => {
+                                                const isActive = s.session_id === selectedSession.session_id;
+                                                return (
+                                                  <button
+                                                    key={s.session_id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                      handleSessionSelect(s);
+                                                      setSessionDropOpen(false);
+                                                    }}
+                                                    className={`w-full text-left px-3.5 py-2 text-xs font-semibold transition cursor-pointer flex items-center justify-between ${
+                                                      isActive
+                                                        ? "bg-indigo-50 text-indigo-700 font-extrabold"
+                                                        : "text-slate-700 hover:bg-slate-50"
+                                                    }`}
+                                                  >
+                                                    <span>Session {contactSessions.length - idx}</span>
+                                                    <span className="text-[10px] text-slate-400 font-medium">
+                                                      {new Date(s.created_at || Date.now()).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" })}
+                                                    </span>
+                                                  </button>
+                                                );
+                                              })}
+                                            </div>
+                                          </>
+                                        )}
+                                      </div>
                                     );
                                   })()}
                                 </div>
@@ -1439,11 +1646,10 @@ export function AppAiAgent() {
                                       key={tab.id}
                                       type="button"
                                       onClick={() => setSessionActiveTab(tab.id)}
-                                      className={`flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg font-extrabold text-[11px] transition-all text-center ${
-                                        active
-                                          ? "bg-white text-indigo-700 shadow-2xs border border-slate-200 cursor-pointer"
-                                          : "text-slate-500 hover:text-slate-800 cursor-pointer"
-                                      }`}
+                                      className={`flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg font-extrabold text-[11px] transition-all text-center ${active
+                                        ? "bg-white text-indigo-700 shadow-2xs border border-slate-200 cursor-pointer"
+                                        : "text-slate-500 hover:text-slate-800 cursor-pointer"
+                                        }`}
                                     >
                                       <Icon className="h-3.5 w-3.5 shrink-0" />
                                       <span>{tab.label}</span>
@@ -1486,6 +1692,15 @@ export function AppAiAgent() {
                                         <span className="font-bold text-slate-400 block text-[9px] uppercase">Session Start Date</span>
                                         <span className="font-semibold text-slate-800 text-xs block">{new Date(selectedSession.created_at).toLocaleString()}</span>
                                       </div>
+
+                                      {selectedSession.device_id && (
+                                        <div className="bg-white border border-slate-200/80 p-4 rounded-xl shadow-3xs space-y-1 md:col-span-2">
+                                          <span className="font-bold text-slate-400 block text-[9px] uppercase">Device ID</span>
+                                          <span className="font-mono text-slate-700 text-[10.5px] block select-all truncate" title={selectedSession.device_id}>
+                                            {selectedSession.device_id}
+                                          </span>
+                                        </div>
+                                      )}
                                     </div>
 
                                     {/* Creator Action Buttons Control */}
@@ -1563,9 +1778,8 @@ export function AppAiAgent() {
                                           const currentEval = evaluations[msgKey];
                                           return (
                                             <div key={idx} className={`flex flex-col ${chat.role === "user" ? "items-end" : "items-start"}`}>
-                                              <div className={`max-w-lg px-4 py-2.5 rounded-xl text-xs shadow-2xs leading-relaxed ${
-                                                chat.role === "user" ? "bg-indigo-600 text-white rounded-tr-none" : "bg-white border border-slate-200 text-slate-800 rounded-tl-none"
-                                              }`}>
+                                              <div className={`max-w-lg px-4 py-2.5 rounded-xl text-xs shadow-2xs leading-relaxed ${chat.role === "user" ? "bg-indigo-600 text-white rounded-tr-none" : "bg-white border border-slate-200 text-slate-800 rounded-tl-none"
+                                                }`}>
                                                 <div className="prose prose-xs max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_strong]:text-inherit [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs">
                                                   <ReactMarkdown>{chat.content}</ReactMarkdown>
                                                 </div>
@@ -1578,9 +1792,8 @@ export function AppAiAgent() {
                                                     <button
                                                       type="button"
                                                       onClick={() => handleEvaluateMessage(msgKey, "good")}
-                                                      className={`font-extrabold px-1.5 py-0.5 rounded transition cursor-pointer flex items-center gap-0.5 ${
-                                                        currentEval === "good" ? "bg-emerald-100 text-emerald-800" : "text-slate-500 hover:text-emerald-700"
-                                                      }`}
+                                                      className={`font-extrabold px-1.5 py-0.5 rounded transition cursor-pointer flex items-center gap-0.5 ${currentEval === "good" ? "bg-emerald-100 text-emerald-800" : "text-slate-500 hover:text-emerald-700"
+                                                        }`}
                                                       title="Mark response as Accurate (Sahi Jawab)"
                                                     >
                                                       👍 Accurate
@@ -1588,9 +1801,8 @@ export function AppAiAgent() {
                                                     <button
                                                       type="button"
                                                       onClick={() => handleEvaluateMessage(msgKey, "bad")}
-                                                      className={`font-extrabold px-1.5 py-0.5 rounded transition cursor-pointer flex items-center gap-0.5 ${
-                                                        currentEval === "bad" ? "bg-red-100 text-red-800" : "text-slate-500 hover:text-red-700"
-                                                      }`}
+                                                      className={`font-extrabold px-1.5 py-0.5 rounded transition cursor-pointer flex items-center gap-0.5 ${currentEval === "bad" ? "bg-red-100 text-red-800" : "text-slate-500 hover:text-red-700"
+                                                        }`}
                                                       title="Mark response as Needs Fix (Galat Jawab)"
                                                     >
                                                       👎 Needs Fix
@@ -1630,147 +1842,307 @@ export function AppAiAgent() {
                                       )}
                                     </div>
 
-                                    {/* CEO AI Response Evaluation Audit Card */}
-                                    <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-3xs space-y-3">
-                                      <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-                                        <h4 className="font-extrabold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
-                                          <LuStar className="h-4 w-4 text-amber-500 fill-amber-400" /> CEO AI Accuracy Assessment
-                                        </h4>
-                                        <span className="text-[10px] font-extrabold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded">Client Audit</span>
+                                    {/* Holistic Device-Level Summary Section */}
+                                    <div className="border-t border-slate-200 pt-4">
+                                      <div className="flex justify-between items-center mb-3">
+                                        <div>
+                                          <h4 className="font-extrabold text-slate-850 text-xs uppercase tracking-wider">Holistic Visitor Summary (Device-Level)</h4>
+                                          <p className="text-[10px] text-slate-400 font-medium">Aggregated summary across all sessions for this device ID</p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => runDeviceAnalysis(selectedSession.device_id)}
+                                          disabled={analyzingDevice || !selectedSession.device_id}
+                                          className="flex items-center gap-1 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-400 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-sm transition cursor-pointer"
+                                        >
+                                          {analyzingDevice ? "Analyzing..." : "Analyze All Sessions"}
+                                        </button>
                                       </div>
 
-                                      <div className="space-y-2 text-xs">
-                                        <label className="block font-bold text-slate-500 text-[10px] uppercase">Rate AI Performance for this Visit</label>
-                                        <div className="flex gap-2">
-                                          <button
-                                            type="button"
-                                            onClick={() => handleEvaluateMessage(selectedSession.session_id, "good")}
-                                            className={`flex-1 py-2 px-3 rounded-lg font-bold text-xs border transition cursor-pointer flex items-center justify-center gap-1.5 ${
-                                              evaluations[selectedSession.session_id] === "good"
-                                                ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
-                                                : "bg-white border-slate-300 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700"
-                                            }`}
-                                          >
-                                            👍 Accurate & Helpful (Sahi)
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleEvaluateMessage(selectedSession.session_id, "bad")}
-                                            className={`flex-1 py-2 px-3 rounded-lg font-bold text-xs border transition cursor-pointer flex items-center justify-center gap-1.5 ${
-                                              evaluations[selectedSession.session_id] === "bad"
-                                                ? "bg-red-600 text-white border-red-600 shadow-2xs"
-                                                : "bg-white border-slate-300 text-slate-700 hover:bg-red-50 hover:text-red-700"
-                                            }`}
-                                          >
-                                            👎 Needs Prompt Fix (Galat)
-                                          </button>
-                                        </div>
+                                      {deviceAnalysis ? (
+                                        <div className="space-y-3 text-xs">
+                                          <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs space-y-1">
+                                            <span className="font-bold text-slate-400 block text-[9px] uppercase">History Summary & Meaning</span>
+                                            <p className="text-slate-700 leading-relaxed">{deviceAnalysis.meaning || "No summary content."}</p>
+                                          </div>
 
-                                        <div className="pt-2 space-y-1.5">
-                                          <label className="block font-bold text-slate-500 text-[10px] uppercase">CEO Feedback & Accuracy Notes</label>
-                                          <textarea
-                                            rows="2"
-                                            placeholder="Add audit notes (e.g. AI gave correct pricing, or needs better answer on Vijay Wiz projects)..."
-                                            value={evalNoteMap[selectedSession.session_id] || ""}
-                                            onChange={(e) => setEvalNoteMap({ ...evalNoteMap, [selectedSession.session_id]: e.target.value })}
-                                            className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg p-2.5 focus:ring-indigo-500 focus:border-indigo-500"
-                                          />
-                                          <button
-                                            type="button"
-                                            onClick={() => handleSaveSessionAudit(selectedSession.session_id)}
-                                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-lg transition cursor-pointer shadow-3xs"
-                                          >
-                                            Save Assessment Notes
-                                          </button>
+                                          {Array.isArray(deviceAnalysis.key_points) && deviceAnalysis.key_points.length > 0 && (
+                                            <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs space-y-1">
+                                              <span className="font-bold text-slate-400 block text-[9px] uppercase">Key Discussion Points</span>
+                                              <ul className="list-disc pl-4 space-y-1 text-slate-700">
+                                                {deviceAnalysis.key_points.map((pt, idx) => (
+                                                  <li key={idx} className="leading-relaxed">{pt}</li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                          )}
                                         </div>
-                                      </div>
+                                      ) : (
+                                        <div className="text-center py-6 bg-slate-100/40 border border-dashed border-slate-200 rounded-xl">
+                                          <p className="text-xs text-slate-400 font-bold">No aggregated summary generated yet.</p>
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
                                 )}
 
                                 {/* Tab 4: OUTCOME */}
                                 {sessionActiveTab === "outcome" && (
-                                  <div className="bg-slate-50/50 border border-slate-200/60 p-4 rounded-xl h-full overflow-y-auto no-scrollbar scrollbar-none">
-                                    <div className="flex justify-between items-center border-b border-slate-200 pb-2 mb-3">
-                                      <h4 className="font-extrabold text-slate-850 text-xs uppercase tracking-wider">AI Leads Classification & Outcome</h4>
-                                      <button
-                                        type="button"
-                                        onClick={() => runAiAnalysis(selectedSession.session_id)}
-                                        disabled={analyzingSessionId === selectedSession.session_id}
-                                        className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-sm transition cursor-pointer"
-                                      >
-                                        {analyzingSessionId === selectedSession.session_id ? "Analyzing..." : "Analyze Conversation"}
-                                      </button>
+                                  <div className="bg-slate-50/50 border border-slate-200/60 p-4 rounded-xl h-full overflow-y-auto no-scrollbar scrollbar-none space-y-4">
+                                    <div>
+                                      <div className="flex justify-between items-center border-b border-slate-200 pb-2 mb-3">
+                                        <h4 className="font-extrabold text-slate-850 text-xs uppercase tracking-wider">AI Leads Classification & Outcome</h4>
+                                        <button
+                                          type="button"
+                                          onClick={() => runAiAnalysis(selectedSession.session_id)}
+                                          disabled={analyzingSessionId === selectedSession.session_id}
+                                          className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-sm transition cursor-pointer"
+                                        >
+                                          {analyzingSessionId === selectedSession.session_id ? "Analyzing..." : "Analyze Conversation"}
+                                        </button>
+                                      </div>
+                                      {selectedSession.analysis ? (
+                                        <div className="space-y-3 text-xs">
+                                          <div className="grid grid-cols-2 gap-3">
+                                            <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs">
+                                              <span className="font-bold text-slate-400 block mb-1 text-[9px] uppercase">Category</span>
+                                              <span className="capitalize font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded text-[10px]">{selectedSession.analysis.category || "N/A"}</span>
+                                            </div>
+                                            <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs">
+                                              <span className="font-bold text-slate-400 block mb-1 text-[9px] uppercase">User Intent</span>
+                                              <span className="font-bold text-slate-750">{selectedSession.analysis.intent || "No intent extracted."}</span>
+                                            </div>
+                                          </div>
+                                          <div className="bg-emerald-50/30 border border-emerald-200 p-3 rounded-lg shadow-3xs">
+                                            <span className="font-bold text-emerald-700 block mb-1 text-[9px] uppercase">Recommended Actions / Next Steps</span>
+                                            <span className="font-semibold text-emerald-850 leading-relaxed">{selectedSession.analysis.next_steps || "No next steps generated."}</span>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="text-center py-6 bg-slate-100/30 border border-dashed border-slate-200 rounded-xl">
+                                          <p className="text-xs text-slate-400 font-bold mb-1">No outcome metrics generated yet.</p>
+                                          <p className="text-[10px] text-slate-400 mb-3">Click "Analyze Conversation" above to extract intent and next action steps using AI.</p>
+                                        </div>
+                                      )}
                                     </div>
-                                    {selectedSession.analysis ? (
-                                      <div className="space-y-3 text-xs">
-                                        <div className="grid grid-cols-2 gap-3">
-                                          <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs">
-                                            <span className="font-bold text-slate-400 block mb-1 text-[9px] uppercase">Category</span>
-                                            <span className="capitalize font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded text-[10px]">{selectedSession.analysis.category || "N/A"}</span>
+
+                                    {/* Holistic Device-Level Analysis Section */}
+                                    <div className="border-t border-slate-200 pt-4">
+                                      <div className="flex justify-between items-center mb-3">
+                                        <div>
+                                          <h4 className="font-extrabold text-slate-850 text-xs uppercase tracking-wider">Holistic Visitor History (Device-Level)</h4>
+                                          <p className="text-[10px] text-slate-400 font-medium">Aggregated analysis across all sessions for this device ID</p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => runDeviceAnalysis(selectedSession.device_id)}
+                                          disabled={analyzingDevice || !selectedSession.device_id}
+                                          className="flex items-center gap-1 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-400 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-sm transition cursor-pointer"
+                                        >
+                                          {analyzingDevice ? "Analyzing..." : "Analyze All Sessions"}
+                                        </button>
+                                      </div>
+
+                                      {deviceAnalysis ? (
+                                        <div className="space-y-3 text-xs">
+                                          <div className="grid grid-cols-2 gap-3">
+                                            <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs">
+                                              <span className="font-bold text-slate-400 block mb-1 text-[9px] uppercase">Holistic Category</span>
+                                              <span className="capitalize font-bold text-violet-700 bg-violet-50 px-2 py-0.5 rounded text-[10px]">{deviceAnalysis.category || "N/A"}</span>
+                                            </div>
+                                            <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs">
+                                              <span className="font-bold text-slate-400 block mb-1 text-[9px] uppercase">Aggregated Intent</span>
+                                              <span className="font-bold text-slate-750">{deviceAnalysis.intent || "No intent extracted."}</span>
+                                            </div>
                                           </div>
-                                          <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs">
-                                            <span className="font-bold text-slate-400 block mb-1 text-[9px] uppercase">User Intent</span>
-                                            <span className="font-bold text-slate-750">{selectedSession.analysis.intent || "No intent extracted."}</span>
+
+                                          <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs space-y-1">
+                                            <span className="font-bold text-slate-400 block text-[9px] uppercase">History Summary & Meaning</span>
+                                            <p className="text-slate-700 leading-relaxed">{deviceAnalysis.meaning || "No summary content."}</p>
+                                          </div>
+
+                                          {Array.isArray(deviceAnalysis.key_points) && deviceAnalysis.key_points.length > 0 && (
+                                            <div className="bg-white border border-slate-200/80 p-3 rounded-lg shadow-3xs space-y-1">
+                                              <span className="font-bold text-slate-400 block text-[9px] uppercase">Key Discussion Points</span>
+                                              <ul className="list-disc pl-4 space-y-1 text-slate-700">
+                                                {deviceAnalysis.key_points.map((pt, idx) => (
+                                                  <li key={idx} className="leading-relaxed">{pt}</li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                          )}
+
+                                          <div className="bg-emerald-50/30 border border-emerald-200 p-3 rounded-lg shadow-3xs">
+                                            <span className="font-bold text-emerald-700 block mb-1 text-[9px] uppercase">Holistic Next Steps</span>
+                                            <span className="font-semibold text-emerald-850 leading-relaxed">{deviceAnalysis.next_steps || "No next steps generated."}</span>
+                                          </div>
+
+                                          <div className="text-[10px] text-slate-400 font-bold flex gap-3 justify-end pt-1">
+                                            <span>Sessions: {deviceAnalysis.session_count || 1}</span>
+                                            <span>Messages: {deviceAnalysis.total_messages || 0}</span>
                                           </div>
                                         </div>
-                                        <div className="bg-emerald-50/30 border border-emerald-200 p-3 rounded-lg shadow-3xs">
-                                          <span className="font-bold text-emerald-700 block mb-1 text-[9px] uppercase">Recommended Actions / Next Steps</span>
-                                          <span className="font-semibold text-emerald-850 leading-relaxed">{selectedSession.analysis.next_steps || "No next steps generated."}</span>
+                                      ) : (
+                                        <div className="text-center py-6 bg-slate-100/40 border border-dashed border-slate-200 rounded-xl">
+                                          <p className="text-xs text-slate-400 font-bold">No aggregated analysis generated yet.</p>
                                         </div>
-                                      </div>
-                                    ) : (
-                                      <div className="text-center py-12">
-                                        <p className="text-xs text-slate-400 font-bold mb-3">No outcome metrics generated yet.</p>
-                                        <p className="text-[10px] text-slate-400 mb-4">Click "Analyze Conversation" above to extract intent and next action steps using AI.</p>
-                                      </div>
-                                    )}
+                                      )}
+                                    </div>
                                   </div>
                                 )}
 
                                 {/* Tab 5: FEEDBACKS */}
                                 {sessionActiveTab === "feedback" && (
-                                  <div className="bg-slate-50/50 border border-slate-200/60 p-4 rounded-xl h-full overflow-y-auto space-y-3 no-scrollbar scrollbar-none">
-                                    <div className="flex justify-between items-center border-b border-slate-200 pb-2 mb-2">
-                                      <h3 className="font-extrabold text-slate-855 text-xs uppercase tracking-wider">Visitor Ratings & Reports List</h3>
-                                      <button
-                                        type="button"
-                                        onClick={() => loadFeedbacks(selectedAgentId)}
-                                        className="text-xs text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
-                                      >
-                                        Refresh List
-                                      </button>
-                                    </div>
-                                    {loadingFeedbacks ? (
-                                      <p className="text-slate-400 text-xs text-center py-12">Loading visitor feedback records...</p>
-                                    ) : feedbacks.length > 0 ? (
-                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        {feedbacks.map((item, idx) => (
-                                          <div key={idx} className="bg-white border border-slate-200/80 p-3.5 rounded-xl shadow-3xs space-y-1.5">
-                                            <div className="flex justify-between items-start">
-                                              <div>
-                                                <span className="font-bold text-slate-900 text-xs block">{item.user_name || "Anonymous Visitor"}</span>
-                                                <span className="text-[10px] text-slate-400">{item.user_email || "No Email Provided"}</span>
-                                              </div>
-                                              <div className="flex items-center text-amber-500 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
-                                                {[...Array(item.rating || 5)].map((_, i) => (
-                                                  <LuStar key={i} className="h-3 w-3 fill-amber-400 text-amber-400" />
-                                                ))}
-                                                <span className="text-[10px] font-bold text-amber-800 ml-1">{item.rating || 5}/5</span>
-                                              </div>
-                                            </div>
-                                            <p className="text-xs text-slate-700 bg-slate-50 p-2 rounded-lg border border-slate-100 italic">
-                                              "{item.comment || "No comment provided."}"
-                                            </p>
-                                            <span className="text-[9px] text-slate-400 block text-right">
-                                              {new Date(item.created_at || Date.now()).toLocaleString()}
-                                            </span>
-                                          </div>
-                                        ))}
+                                  <div className="bg-slate-50/50 border border-slate-200/60 p-4 rounded-xl h-full overflow-y-auto space-y-4 no-scrollbar scrollbar-none">
+                                    {/* CEO AI Response Evaluation Audit Card */}
+                                    <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-3xs space-y-3 text-left">
+                                      <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                                        <h4 className="font-extrabold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                          <LuStar className="h-4 w-4 text-amber-500 fill-amber-400" /> CEO AI Accuracy Assessment & Report
+                                        </h4>
+                                        <span className="text-[10px] font-extrabold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded">Client Audit</span>
                                       </div>
-                                    ) : (
-                                      <p className="text-slate-400 text-xs text-center py-12">No visitor ratings or reports submitted for this agent yet.</p>
-                                    )}
+
+                                      {/* Sub-Tabs Selector */}
+                                      <div className="flex bg-slate-100 p-1 rounded-lg gap-1 border border-slate-200/60 shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={() => setAuditSubTab("feedback")}
+                                          className={`flex-1 py-1 rounded-md font-bold text-center text-xs transition cursor-pointer ${
+                                            auditSubTab === "feedback"
+                                              ? "bg-white text-indigo-700 shadow-2xs border border-slate-200/40"
+                                              : "text-slate-500 hover:text-slate-800"
+                                          }`}
+                                        >
+                                          👍 Star Feedback
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setAuditSubTab("report")}
+                                          className={`flex-1 py-1 rounded-md font-bold text-center text-xs transition cursor-pointer ${
+                                            auditSubTab === "report"
+                                              ? "bg-white text-rose-700 shadow-2xs border border-slate-200/40"
+                                              : "text-slate-500 hover:text-slate-800"
+                                          }`}
+                                        >
+                                          🚨 Report Issue
+                                        </button>
+                                      </div>
+
+                                      {auditSubTab === "feedback" ? (
+                                        /* FEEDBACK SUB-TAB */
+                                        <div className="space-y-3 pt-1">
+                                          <div className="space-y-1.5">
+                                            <label className="block font-bold text-slate-500 text-[10px] uppercase">Rate AI Performance (1-5 Stars)</label>
+                                            <div className="flex items-center gap-1.5 py-0.5">
+                                              {[1, 2, 3, 4, 5].map((star) => {
+                                                const isSelected = (evaluations[selectedSession.session_id] || 0) >= star;
+                                                return (
+                                                  <button
+                                                    key={star}
+                                                    type="button"
+                                                    onClick={() => setEvaluations(prev => ({ ...prev, [selectedSession.session_id]: star }))}
+                                                    className="focus:outline-none transition cursor-pointer p-0.5"
+                                                  >
+                                                    <LuStar
+                                                      className={`h-6 w-6 ${
+                                                        isSelected
+                                                          ? "text-amber-500 fill-amber-400"
+                                                          : "text-slate-300 hover:text-amber-400"
+                                                      }`}
+                                                    />
+                                                  </button>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+
+                                          <div className="space-y-1.5">
+                                            <label className="block font-bold text-slate-500 text-[10px] uppercase">Optional Comments & Notes</label>
+                                            <textarea
+                                              rows="2"
+                                              placeholder="Add positive details, observations, or leave empty..."
+                                              value={evalNoteMap[selectedSession.session_id] || ""}
+                                              onChange={(e) => setEvalNoteMap({ ...evalNoteMap, [selectedSession.session_id]: e.target.value })}
+                                              className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg p-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                            />
+                                          </div>
+
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSaveSessionAudit(selectedSession.session_id, "feedback")}
+                                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2 rounded-lg transition cursor-pointer shadow-3xs text-center"
+                                          >
+                                            Submit Feedback
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        /* REPORT SUB-TAB */
+                                        <div className="space-y-3 pt-1">
+                                          <div className="space-y-1.5">
+                                            <label className="block font-bold text-rose-500 text-[10px] uppercase">Describe Chat Issue (Mandatory)</label>
+                                            <textarea
+                                              rows="3"
+                                              placeholder="Describe the complaint/issue (e.g. AI gave incorrect details, or got stuck in a loop)..."
+                                              value={evalNoteMap[selectedSession.session_id] || ""}
+                                              onChange={(e) => setEvalNoteMap({ ...evalNoteMap, [selectedSession.session_id]: e.target.value })}
+                                              className="w-full bg-slate-50 border border-slate-350 text-slate-800 text-xs rounded-lg p-2.5 focus:ring-rose-500 focus:border-rose-500"
+                                            />
+                                          </div>
+
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSaveSessionAudit(selectedSession.session_id, "report")}
+                                            className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs py-2 rounded-lg transition cursor-pointer shadow-3xs text-center"
+                                          >
+                                            Submit Issue Report
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <div className="border-t border-slate-200 pt-3">
+                                      <div className="flex justify-between items-center border-b border-slate-200 pb-2 mb-2">
+                                        <h3 className="font-extrabold text-slate-855 text-xs uppercase tracking-wider">Visitor Ratings & Reports List</h3>
+                                        <button
+                                          type="button"
+                                          onClick={() => loadFeedbacks(selectedAgentId)}
+                                          className="text-xs text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
+                                        >
+                                          Refresh List
+                                        </button>
+                                      </div>
+                                      {loadingFeedbacks ? (
+                                        <p className="text-slate-400 text-xs text-center py-12">Loading visitor feedback records...</p>
+                                      ) : feedbacks.length > 0 ? (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                          {feedbacks.map((item, idx) => (
+                                            <div key={idx} className="bg-white border border-slate-200/80 p-3.5 rounded-xl shadow-3xs space-y-1.5 text-left">
+                                              <div className="flex justify-between items-start">
+                                                <div>
+                                                  <span className="font-bold text-slate-900 text-xs block">{item.user_name || "Anonymous Visitor"}</span>
+                                                  <span className="text-[10px] text-slate-400">{item.user_email || "No Email Provided"}</span>
+                                                </div>
+                                                <div className="flex items-center text-amber-500 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                                                  {[...Array(item.rating || 5)].map((_, i) => (
+                                                    <LuStar key={i} className="h-3 w-3 fill-amber-400 text-amber-400" />
+                                                  ))}
+                                                  <span className="text-[10px] font-bold text-amber-800 ml-1">{item.rating || 5}/5</span>
+                                                </div>
+                                              </div>
+                                              <p className="text-xs text-slate-700 bg-slate-50 p-2 rounded-lg border border-slate-100 italic">
+                                                "{item.comment || "No comment provided."}"
+                                              </p>
+                                              <span className="text-[9px] text-slate-400 block text-right">
+                                                {new Date(item.created_at || Date.now()).toLocaleString()}
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <p className="text-slate-400 text-xs text-center py-12">No visitor ratings or reports submitted for this agent yet.</p>
+                                      )}
+                                    </div>
                                   </div>
                                 )}
                               </div>
@@ -1874,9 +2246,8 @@ export function AppAiAgent() {
                             {sandboxHistory.length > 0 ? (
                               sandboxHistory.map((chat, idx) => (
                                 <div key={idx} className={`flex flex-col ${chat.role === "user" ? "items-end" : "items-start"}`}>
-                                  <div className={`max-w-md px-3.5 py-2 rounded-xl shadow-2xs ${
-                                    chat.role === "user" ? "bg-indigo-600 text-white rounded-tr-none" : "bg-white border border-slate-200 text-slate-800 rounded-tl-none"
-                                  }`}>
+                                  <div className={`max-w-md px-3.5 py-2 rounded-xl shadow-2xs ${chat.role === "user" ? "bg-indigo-600 text-white rounded-tr-none" : "bg-white border border-slate-200 text-slate-800 rounded-tl-none"
+                                    }`}>
                                     <div className="prose prose-xs prose-slate max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_strong]:text-inherit [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs">
                                       <ReactMarkdown>{chat.content}</ReactMarkdown>
                                     </div>
@@ -1911,11 +2282,10 @@ export function AppAiAgent() {
                               type="button"
                               onClick={toggleVoiceListening}
                               disabled={chatLoading}
-                              className={`shrink-0 flex items-center justify-center w-9 h-9 rounded-lg border transition cursor-pointer ${
-                                isListening
-                                  ? "bg-red-500 border-red-600 text-white animate-pulse shadow-lg shadow-red-200"
-                                  : "bg-white border-slate-350 text-slate-500 hover:text-indigo-600 hover:border-indigo-400 hover:bg-indigo-50"
-                              }`}
+                              className={`shrink-0 flex items-center justify-center w-9 h-9 rounded-lg border transition cursor-pointer ${isListening
+                                ? "bg-red-500 border-red-600 text-white animate-pulse shadow-lg shadow-red-200"
+                                : "bg-white border-slate-350 text-slate-500 hover:text-indigo-600 hover:border-indigo-400 hover:bg-indigo-50"
+                                }`}
                               title={isListening ? "Stop listening" : "Hold to speak"}
                             >
                               <LuMic className="h-4 w-4" />
@@ -1925,9 +2295,8 @@ export function AppAiAgent() {
                               placeholder={isListening ? "Listening... speak now" : "Type a message or click mic to speak..."}
                               value={chatInput}
                               onChange={(e) => setChatInput(e.target.value)}
-                              className={`flex-1 bg-white border text-slate-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 px-3 py-2 w-full shadow-2xs ${
-                                isListening ? "border-red-400 bg-red-50/30" : "border-slate-300"
-                              }`}
+                              className={`flex-1 bg-white border text-slate-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 px-3 py-2 w-full shadow-2xs ${isListening ? "border-red-400 bg-red-50/30" : "border-slate-300"
+                                }`}
                               disabled={chatLoading || isListening}
                             />
                             <button
@@ -1974,27 +2343,24 @@ export function AppAiAgent() {
                                 <button
                                   type="button"
                                   onClick={() => setCardTemplate("gold")}
-                                  className={`px-2.5 py-1 rounded-lg font-extrabold text-[10px] transition cursor-pointer ${
-                                    cardTemplate === "gold" ? "bg-amber-400 text-slate-950 shadow-2xs" : "text-slate-600 hover:bg-slate-100"
-                                  }`}
+                                  className={`px-2.5 py-1 rounded-lg font-extrabold text-[10px] transition cursor-pointer ${cardTemplate === "gold" ? "bg-amber-400 text-slate-950 shadow-2xs" : "text-slate-600 hover:bg-slate-100"
+                                    }`}
                                 >
                                   👑 Royal Gold
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setCardTemplate("yellow")}
-                                  className={`px-2.5 py-1 rounded-lg font-extrabold text-[10px] transition cursor-pointer ${
-                                    cardTemplate === "yellow" ? "bg-amber-400 text-slate-950 shadow-2xs" : "text-slate-600 hover:bg-slate-100"
-                                  }`}
+                                  className={`px-2.5 py-1 rounded-lg font-extrabold text-[10px] transition cursor-pointer ${cardTemplate === "yellow" ? "bg-amber-400 text-slate-950 shadow-2xs" : "text-slate-600 hover:bg-slate-100"
+                                    }`}
                                 >
                                   ⚡ Dark Yellow
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setCardTemplate("wave")}
-                                  className={`px-2.5 py-1 rounded-lg font-extrabold text-[10px] transition cursor-pointer ${
-                                    cardTemplate === "wave" ? "bg-amber-400 text-slate-950 shadow-2xs" : "text-slate-600 hover:bg-slate-100"
-                                  }`}
+                                  className={`px-2.5 py-1 rounded-lg font-extrabold text-[10px] transition cursor-pointer ${cardTemplate === "wave" ? "bg-amber-400 text-slate-950 shadow-2xs" : "text-slate-600 hover:bg-slate-100"
+                                    }`}
                                 >
                                   🌊 Metallic Wave
                                 </button>
@@ -2233,10 +2599,15 @@ export function AppAiAgent() {
                 <h1 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-1.5">
                   {formMode === "create" ? "Create New Agent" : "Edit Agent Configuration"}
                 </h1>
-                <p className="text-[10px] text-slate-400 font-semibold tracking-wider uppercase mt-0.5">Define your specialized AI personality</p>
+                {formMode === "edit" && selectedAgentId && (
+                  <p className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center gap-1.5">
+                    Agent ID: <span className="bg-slate-100 text-slate-700 font-mono px-2 py-0.5 rounded-md select-all border border-slate-250 font-semibold text-[10px]">{selectedAgentId}</span>
+                  </p>
+                )}
+                <p className="text-[10px] text-slate-400 font-semibold tracking-wider uppercase mt-1">Define your specialized AI personality</p>
               </div>
             </div>
-            
+
             <button
               onClick={handleSaveAgent}
               className="w-full sm:w-auto bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs py-2.5 sm:py-2 px-4.5 rounded-lg shadow-sm transition cursor-pointer text-center"
@@ -2267,11 +2638,10 @@ export function AppAiAgent() {
                       key={item.id}
                       type="button"
                       onClick={() => setFormActiveTab(item.id)}
-                      className={`flex items-center gap-2 py-2 sm:py-2.5 px-3 rounded-lg font-bold text-xs text-left text-nowrap shrink-0 transition cursor-pointer border-b-2 md:border-b-0 md:border-l-4 ${
-                        active
-                          ? "bg-orange-50 border-orange-500 text-orange-700 bg-orange-500/10"
-                          : "border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                      }`}
+                      className={`flex items-center gap-2 py-2 sm:py-2.5 px-3 rounded-lg font-bold text-xs text-left text-nowrap shrink-0 transition cursor-pointer border-b-2 md:border-b-0 md:border-l-4 ${active
+                        ? "bg-orange-50 border-orange-500 text-orange-700 bg-orange-500/10"
+                        : "border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                        }`}
                     >
                       <Icon className="h-4 w-4 shrink-0" />
                       {item.label}
@@ -2283,7 +2653,7 @@ export function AppAiAgent() {
 
             {/* Right form input details pane */}
             <div className="flex-1 p-4 sm:p-6 md:p-8 text-xs text-slate-700 bg-white">
-              
+
               {/* TAB A: MESSAGE CONTENT */}
               {formActiveTab === "message" && (
                 <div className="space-y-6">
@@ -2785,9 +3155,8 @@ export function AppAiAgent() {
                               <td className="px-5 py-4 capitalize font-semibold">{src.source_type}</td>
                               <td className="px-5 py-4 text-center font-bold text-indigo-700">{src.chunk_count}</td>
                               <td className="px-5 py-4 text-center">
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                                  src.isStaged ? "bg-orange-100 text-orange-800" : "bg-emerald-100 text-emerald-800"
-                                }`}>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${src.isStaged ? "bg-orange-100 text-orange-800" : "bg-emerald-100 text-emerald-800"
+                                  }`}>
                                   {src.status}
                                 </span>
                               </td>
@@ -2835,6 +3204,9 @@ export function AppAiAgent() {
               <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50">
                 <h3 className="text-xs font-bold text-indigo-850 uppercase tracking-wide mb-3">Agent Profile</h3>
                 <div className="grid grid-cols-3 gap-y-3 text-xs">
+                  <span className="text-slate-500 font-semibold">Agent ID:</span>
+                  <span className="col-span-2 font-mono font-semibold text-slate-700 bg-slate-100 border border-slate-250 px-2 py-0.5 rounded-md select-all w-fit text-[10px]">{selectedAgent.agent_id}</span>
+
                   <span className="text-slate-500 font-semibold">Name:</span>
                   <span className="col-span-2 font-bold text-slate-800">{selectedAgent.name}</span>
 

@@ -16,7 +16,9 @@ import {
   LuStar,
   LuMessageCircle,
   LuChevronRight,
-  LuX
+  LuX,
+  LuPaperclip,
+  LuFileText
 } from "react-icons/lu";
 
 function getContrastColor(hexColor) {
@@ -64,6 +66,8 @@ export function PublicAgentChat() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [askedQuestions, setAskedQuestions] = useState([]);
+  const [stagedFile, setStagedFile] = useState(null); // { name, type, size, extractedText }
+  const [uploadingFile, setUploadingFile] = useState(false);
 
   // Audio & STT WebSocket States
   const [isRecording, setIsRecording] = useState(false);
@@ -137,7 +141,7 @@ export function PublicAgentChat() {
       loadPublicAgentDetails();
 
       // Retrieve or create visitor session key and device details
-      const storedSession = localStorage.getItem(`magnifai_sess_${agentId}`);
+      const storedSession = sessionStorage.getItem(`magnifai_sess_${agentId}`);
       const storedDevice = localStorage.getItem("magnifai_device_id");
       const storedName = localStorage.getItem("magnifai_user_name");
       const storedPhone = localStorage.getItem("magnifai_user_phone");
@@ -145,17 +149,23 @@ export function PublicAgentChat() {
       const sysDeviceName = getBrowserDeviceName();
       setDeviceName(sysDeviceName);
 
+      // Always resolve device ID persistently
+      const activeDevice = storedDevice || "dev-" + Math.random().toString(36).substring(2, 11);
+      setDeviceId(activeDevice);
+      if (!storedDevice) {
+        localStorage.setItem("magnifai_device_id", activeDevice);
+      }
+
+      if (storedName) setUserName(storedName);
+      if (storedPhone) setPhoneNumber(storedPhone);
+
       if (storedSession) {
         setSessionId(storedSession);
-        setDeviceId(storedDevice || "dev-" + Math.random().toString(36).substring(2, 11));
-        if (storedName) setUserName(storedName);
-        if (storedPhone) setPhoneNumber(storedPhone);
         setIsRegistered(true);
       } else {
         const newSess = "sess-" + Math.random().toString(36).substring(2, 11);
-        const newDev = "dev-" + Math.random().toString(36).substring(2, 11);
         setSessionId(newSess);
-        setDeviceId(newDev);
+        sessionStorage.setItem(`magnifai_sess_${agentId}`, newSess);
         setIsRegistered(true);
       }
     }
@@ -260,13 +270,66 @@ export function PublicAgentChat() {
     e.preventDefault();
     if (!userName.trim() || !phoneNumber.trim()) return;
 
-    localStorage.setItem(`magnifai_sess_${agentId}`, sessionId);
+    sessionStorage.setItem(`magnifai_sess_${agentId}`, sessionId);
     localStorage.setItem("magnifai_device_id", deviceId);
     localStorage.setItem("magnifai_user_name", userName.trim());
     localStorage.setItem("magnifai_user_phone", phoneNumber.trim());
 
     setIsRegistered(true);
     toastSuccess("Welcome! Chat room initialized.");
+  }
+
+  async function handleFileUpload(e) {
+    const file = e.target.files[0];
+    if (!file || !agentId) return;
+
+    const limitBytes = 20 * 1024 * 1024;
+    if (file.size > limitBytes) {
+      alert("File size exceeds the 20MB limit.");
+      return;
+    }
+
+    setUploadingFile(true);
+    const apiBase = import.meta.env.VITE_API_BASE_URL || "";
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      let uploadUrl = `${apiBase}/api/agents/${agentId}/upload-chat-file`;
+      let res = await fetch(uploadUrl, {
+        method: "POST",
+        body: formData
+      });
+
+      if (!res.ok) {
+        if (!apiBase || apiBase.includes("localhost")) {
+          console.warn("[API] Local upload failed; trying live EC2 fallback...");
+          const liveBase = "http://65.2.129.159:4000";
+          uploadUrl = `${liveBase}/api/agents/${agentId}/upload-chat-file`;
+          res = await fetch(uploadUrl, {
+            method: "POST",
+            body: formData
+          });
+        }
+      }
+
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      
+      setStagedFile({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        extractedText: data.extracted_text || ""
+      });
+      toastSuccess(`File "${file.name}" uploaded successfully! 📎`);
+    } catch (err) {
+      console.error("[file-upload-error]", err);
+      alert("Failed to upload file. Please try again.");
+    } finally {
+      setUploadingFile(false);
+      e.target.value = null;
+    }
   }
 
   // Send Message function
@@ -282,7 +345,19 @@ export function PublicAgentChat() {
 
     sendingRef.current = true;
     setChatLoading(true);
-    setMessages(prev => [...prev, { role: "user", content: trimmedTxt }]);
+
+    const activeFile = stagedFile;
+    const fileContext = activeFile ? activeFile.extractedText : "";
+    setStagedFile(null); // Clear staged state
+
+    setMessages(prev => [
+      ...prev,
+      {
+        role: "user",
+        content: trimmedTxt,
+        attachment: activeFile ? { name: activeFile.name, type: activeFile.type } : null
+      }
+    ]);
 
     const apiBase = import.meta.env.VITE_API_BASE_URL || "";
     try {
@@ -297,7 +372,8 @@ export function PublicAgentChat() {
             device_id: deviceId,
             device_name: deviceName,
             user_name: (userName && userName !== "Anonymous Visitor") ? userName : "",
-            phone_number: (phoneNumber && phoneNumber !== "Not Provided") ? phoneNumber : ""
+            phone_number: (phoneNumber && phoneNumber !== "Not Provided") ? phoneNumber : "",
+            file_context: fileContext
           })
         });
       } catch (firstErr) {
@@ -314,7 +390,8 @@ export function PublicAgentChat() {
               device_id: deviceId,
               device_name: deviceName,
               user_name: (userName && userName !== "Anonymous Visitor") ? userName : "",
-              phone_number: (phoneNumber && phoneNumber !== "Not Provided") ? phoneNumber : ""
+              phone_number: (phoneNumber && phoneNumber !== "Not Provided") ? phoneNumber : "",
+              file_context: fileContext
             })
           });
         } else {
@@ -369,10 +446,11 @@ export function PublicAgentChat() {
   // Send Message to Public Ask API
   async function sendMessage(e) {
     e?.preventDefault();
-    if (!chatInput.trim() || chatLoading) return;
+    if (chatLoading) return;
     const txt = chatInput.trim();
+    if (!txt && !stagedFile) return;
     setChatInput("");
-    await sendTextMessage(txt);
+    await sendTextMessage(txt || `Please analyze this attached document: ${stagedFile.name}`);
   }
 
   const messagesEndRef = useRef(null);
@@ -1123,6 +1201,12 @@ export function PublicAgentChat() {
                         isUser ? "rounded-tr-xs" : "rounded-tl-xs"
                       }`}
                     >
+                      {chat.attachment && (
+                        <div className="flex items-center gap-2 bg-black/15 border border-white/10 px-3 py-1.5 rounded-xl mb-1.5 text-xs text-inherit w-fit">
+                          <LuFileText className="h-4 w-4 shrink-0" />
+                          <span className="font-bold truncate max-w-[150px] sm:max-w-xs">{chat.attachment.name}</span>
+                        </div>
+                      )}
                       <div
                         style={{ color: textColor }}
                         className={`prose prose-sm max-w-none text-sm sm:text-base leading-normal [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_li]:my-0.5 [&_strong]:text-inherit [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm font-medium ${isUser ? "" : "prose-invert"}`}
@@ -1204,6 +1288,25 @@ export function PublicAgentChat() {
                 );
               })()}
 
+              {stagedFile && (
+                <div className="bg-slate-800/85 border border-slate-700 p-2.5 rounded-xl mb-2 flex items-center justify-between text-slate-200">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <LuFileText className="h-5 w-5 text-indigo-400 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold truncate max-w-[200px] sm:max-w-xs">{stagedFile.name}</p>
+                      <p className="text-[9px] text-slate-400 font-semibold">Staged Context ({(stagedFile.size / 1024).toFixed(1)} KB)</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setStagedFile(null)}
+                    className="text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
+                  >
+                    <LuX className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+
               <form onSubmit={sendMessage} className="flex gap-1.5 sm:gap-2.5 items-center bg-slate-900 border border-slate-800 p-1 sm:p-1.5 rounded-2xl shadow-inner">
                 <button
                   type="button"
@@ -1218,6 +1321,29 @@ export function PublicAgentChat() {
                 </button>
 
                 <input
+                  type="file"
+                  id="chat-file-input"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                  accept=".pdf,.doc,.docx,.txt,.csv,image/*,video/*"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => document.getElementById("chat-file-input").click()}
+                  disabled={uploadingFile}
+                  className="p-2.5 sm:p-3 rounded-xl border border-slate-700 text-slate-400 bg-slate-800 hover:bg-slate-700 hover:text-white transition shrink-0 cursor-pointer shadow-xs relative"
+                  title="Attach document, image, or video"
+                >
+                  <LuPaperclip className="h-4 w-4 sm:h-5 sm:w-5" />
+                  {uploadingFile && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-slate-800/80 rounded-xl">
+                      <span className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  )}
+                </button>
+
+                <input
                   type="text"
                   placeholder="Ask any question..."
                   value={chatInput}
@@ -1228,7 +1354,7 @@ export function PublicAgentChat() {
 
                 <button
                   type="submit"
-                  disabled={chatLoading || !chatInput.trim()}
+                  disabled={chatLoading || (!chatInput.trim() && !stagedFile)}
                   style={{ backgroundColor: brandColor }}
                   className="text-white font-bold p-2.5 sm:p-3 rounded-xl shadow-md transition hover:brightness-110 disabled:opacity-40 flex items-center justify-center shrink-0 cursor-pointer"
                 >
