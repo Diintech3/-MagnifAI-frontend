@@ -1,14 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   LuCalendar, 
   LuClock, 
   LuPlus, 
   LuCheck, 
   LuTriangleAlert, 
-  LuChevronRight, 
-  LuChevronLeft,
   LuMapPin,
-  LuInfo,
   LuActivity
 } from "react-icons/lu";
 import { api } from "../../lib/api";
@@ -23,7 +20,7 @@ export function AppDailyPlanner() {
   const [datesWindow, setDatesWindow] = useState([]);
   
   // UI Filters
-  const [activeFilter, setActiveFilter] = useState("All"); // All, Meetings, Tasks, Reminder, Travel
+  const [activeFilter, setActiveFilter] = useState("All");
   
   // Data States
   const [events, setEvents] = useState([]);
@@ -60,17 +57,57 @@ export function AppDailyPlanner() {
     setTaskDate(`${yyyy}-${mm}-${dd}`);
   }, []);
 
-  // Fetch Carousel & Daily Events on Date change
+  // Run auto-complete once on mount or when token changes, then load initial events
   useEffect(() => {
-    loadCarousel();
-    loadDailyEvents();
-  }, [selectedDate, token]);
+    const runAutoCompleteAndLoad = async () => {
+      if (!token) return;
+      try {
+        await api("/api/root-agent/plans/auto-complete", { method: "POST", token });
+      } catch (err) {
+        console.error("Auto-complete trigger failed", err);
+      }
+      loadCarousel();
+      loadDailyEvents();
+    };
+    runAutoCompleteAndLoad();
+  }, [token]);
+
+  // Load events when date or active filter changes, but skip redundant loading on initial render
+  const isFirstMount = useRef(true);
+  useEffect(() => {
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      return;
+    }
+    if (token) {
+      loadCarousel();
+      loadDailyEvents();
+    }
+  }, [selectedDate, activeFilter]);
 
   const loadCarousel = async () => {
     try {
-      const data = await api("/api/v1/calendar/carousel", { token });
-      if (data && data.success) {
-        setCarouselItems(data.carousel_items || []);
+      const data = await api("/api/root-agent/plans/today", { token });
+      if (data) {
+        // Map today's plans list directly to carousel structures
+        const items = data.map((p, idx) => {
+          const timeParts = (p.plan_time || "09:00").split(":");
+          let hr = Number(timeParts[0]);
+          const ampm = hr >= 12 ? "PM" : "AM";
+          hr = hr % 12 || 12;
+          const formattedTime = `${String(hr).padStart(2, '0')}:${timeParts[1]} ${ampm}`;
+          
+          return {
+            id: p.plan_id || `item_${idx}`,
+            title: p.title || "Task",
+            category: p.category || "General",
+            time: formattedTime,
+            starts_in: p.is_completed ? "Completed" : "Today",
+            colors: idx % 2 === 0 ? ["#FBCFE8", "#E9D5FF"] : ["#BFDBFE", "#A7F3D0"],
+            border_color: idx % 2 === 0 ? "#D8B4FE" : "#6EE7B7"
+          };
+        });
+        setCarouselItems(items);
       }
     } catch (e) {
       console.error("Failed to load carousel", e);
@@ -80,18 +117,17 @@ export function AppDailyPlanner() {
   const loadDailyEvents = async () => {
     setLoading(true);
     try {
-      // Calculate start and end range for selected date
-      const startOfDay = new Date(selectedDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(selectedDate);
-      endOfDay.setHours(23, 59, 59, 999);
+      const yyyy = selectedDate.getFullYear();
+      const mm = String(selectedDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(selectedDate.getDate()).padStart(2, '0');
+      const selectedDateStr = `${yyyy}-${mm}-${dd}`;
 
-      const data = await api(
-        `/api/v1/calendar/events?start_date=${startOfDay.toISOString()}&end_date=${endOfDay.toISOString()}`,
-        { token }
-      );
-      if (data && data.success) {
-        setEvents(data.events || []);
+      // Fetch plans and filter by selected date. If "Completed" tab is active, fetch completed plans
+      const filterType = activeFilter === "Completed" ? "completed" : "all";
+      const data = await api(`/api/root-agent/plans?filter=${filterType}`, { token });
+      if (data) {
+        const filtered = data.filter(plan => plan.plan_date === selectedDateStr);
+        setEvents(filtered);
       }
     } catch (e) {
       toastFromError(e, "Failed to load events");
@@ -101,19 +137,20 @@ export function AppDailyPlanner() {
   };
 
   // Toggle Completion Patch API
-  const handleToggleCompletion = async (id) => {
+  const handleToggleCompletion = async (planId) => {
     try {
-      const res = await api(`/api/v1/calendar/events/${id}/toggle`, {
+      const res = await api(`/api/root-agent/plans/${planId}/complete`, {
         method: "PATCH",
         token
       });
       if (res && res.success) {
-        // Toggle local state
-        setEvents(prev => prev.map(e => e.id === id ? { ...e, is_completed: res.is_completed } : e));
+        const updated = res.plan || res;
+        // Update local state
+        setEvents(prev => prev.map(e => e.plan_id === planId ? { ...e, is_completed: updated.is_completed } : e));
         loadCarousel(); // Refresh header carousel
       }
     } catch (e) {
-      toastFromError(e, "Failed to toggle completion status");
+      toastFromError(e, "Failed to update completion status");
     }
   };
 
@@ -129,7 +166,7 @@ export function AppDailyPlanner() {
       // Step A: Conflict check
       if (!forceSave) {
         const conflictRes = await api(
-          `/api/v1/calendar/check-conflict?plan_date=${taskDate}&plan_time=${taskTime}`,
+          `/api/root-agent/plans/check-conflict?plan_date=${taskDate}&plan_time=${taskTime}`,
           { token }
         );
         if (conflictRes && conflictRes.has_conflict) {
@@ -139,16 +176,24 @@ export function AppDailyPlanner() {
         }
       }
 
-      // Step B: Submit Event payload
-      const startDateTimeStr = `${taskDate}T${taskTime}:00`;
-      const res = await api("/api/v1/calendar/events", {
+      // Step B: Submit Event payload matching PDF exactly (normalize category to lowercase)
+      const categoryMap = {
+        "Meetings": "meeting",
+        "Tasks": "work",
+        "Reminder": "reminder",
+        "Travel": "travel"
+      };
+      const apiCategory = categoryMap[taskCategory] || taskCategory.toLowerCase();
+
+      const res = await api("/api/root-agent/plans", {
         method: "POST",
         token,
         body: {
           title: taskTitle,
-          subtitle: taskDesc,
-          category: taskCategory,
-          start_time: startDateTimeStr
+          description: taskDesc,
+          category: apiCategory,
+          plan_date: taskDate,
+          plan_time: taskTime
         }
       });
 
@@ -165,23 +210,48 @@ export function AppDailyPlanner() {
         loadCarousel();
       }
     } catch (e) {
-      toastFromError(e, "Failed to create event");
+      toastFromError(e, "Failed to create plan");
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Filtered Events logic
+  // Filtered Events logic matching uppercase filters to lowercase category strings
   const filteredEvents = events.filter(e => {
+    const isEventCompleted = e.is_completed === true || e.status === "completed";
+    
+    if (activeFilter === "Completed") {
+      return isEventCompleted;
+    }
+    
+    // For other tabs, exclude completed events (as per backend behavior)
+    if (isEventCompleted) {
+      return false;
+    }
+    
     if (activeFilter === "All") return true;
-    return e.category.toLowerCase() === activeFilter.toLowerCase();
+
+    const cat = (e.category || "").toLowerCase();
+    if (activeFilter === "Meetings") {
+      return cat === "meeting" || cat === "meetings";
+    }
+    if (activeFilter === "Tasks") {
+      return cat === "work" || cat === "tasks" || cat === "task" || cat === "personal";
+    }
+    if (activeFilter === "Reminder") {
+      return cat === "reminder" || cat === "reminders" || cat === "health" || cat === "remin";
+    }
+    if (activeFilter === "Travel") {
+      return cat === "travel";
+    }
+    return false;
   });
 
-  const getFormatTime = (isoString) => {
-    if (!isoString) return "09:00 AM";
-    const d = new Date(isoString);
-    let hr = d.getHours();
-    const min = String(d.getMinutes()).padStart(2, '0');
+  const getFormatTime = (timeStr) => {
+    if (!timeStr) return "09:00 AM";
+    const parts = timeStr.split(":");
+    let hr = Number(parts[0]);
+    const min = parts[1] || "00";
     const ampm = hr >= 12 ? "PM" : "AM";
     hr = hr % 12 || 12;
     return `${String(hr).padStart(2, '0')}:${min} ${ampm}`;
@@ -228,7 +298,6 @@ export function AppDailyPlanner() {
                 }}
                 className="flex-shrink-0 w-64 p-4 rounded-2xl border shadow-sm relative overflow-hidden transition hover:-translate-y-0.5"
               >
-                {/* Background glow animation decoration */}
                 <div className="absolute -right-8 -bottom-8 w-24 h-24 rounded-full bg-white/20 blur-xl pointer-events-none" />
                 
                 <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-white/40 text-slate-700">
@@ -297,7 +366,7 @@ export function AppDailyPlanner() {
 
       {/* 3. Category Filter pills */}
       <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-none">
-        {["All", "Meetings", "Tasks", "Reminder", "Travel"].map((filter) => (
+        {["All", "Meetings", "Tasks", "Reminder", "Travel", "Completed"].map((filter) => (
           <button
             key={filter}
             onClick={() => setActiveFilter(filter)}
@@ -333,10 +402,8 @@ export function AppDailyPlanner() {
           </div>
         ) : (
           <div className="relative border-l border-slate-100 pl-6 ml-3 space-y-6">
-            {filteredEvents.map((evt) => {
-              // Custom colors based on category mappings
-              const colorConfig = evt.metadata || { color: "#EDFDF5", border_color: "#BBF7D0" };
-              const categoryLower = String(evt.category || "").toLowerCase();
+            {filteredEvents.map((plan) => {
+              const categoryLower = String(plan.category || "").toLowerCase();
               
               let cardBg = "bg-[#EDFDF5]";
               let borderCol = "border-[#BBF7D0]";
@@ -361,52 +428,79 @@ export function AppDailyPlanner() {
               }
 
               return (
-                <div key={evt.id} className="relative group">
-                  {/* Timeline bullet node */}
+                <div key={plan.plan_id} className="relative group">
                   <span className={`absolute -left-[31px] top-4 w-3.5 h-3.5 rounded-full border-2 border-white shadow-sm transition ${
-                    evt.is_completed ? "bg-slate-400" : "bg-indigo-600"
+                    plan.is_completed ? "bg-slate-400" : "bg-indigo-600"
                   }`} />
                   
-                  {/* Event Item content card */}
                   <div className={`p-4 rounded-2xl border shadow-sm transition hover:shadow-md ${cardBg} ${borderCol} flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 ${
-                    evt.is_completed ? "opacity-60 grayscale-[30%]" : ""
+                    plan.is_completed ? "opacity-60 grayscale-[30%]" : ""
                   }`}>
                     <div className="flex-1">
                       <div className="flex items-center flex-wrap gap-2">
                         <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
                           <LuClock className="h-3 w-3" />
-                          {getFormatTime(evt.start_time)}
+                          {getFormatTime(plan.plan_time)}
                         </span>
                         <span className={`text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md ${labelBg}`}>
-                          {evt.category}
+                          {plan.category ? (plan.category.charAt(0).toUpperCase() + plan.category.slice(1)) : "Task"}
+                        </span>
+                        <span className={`text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md ${
+                          plan.status === "completed" || plan.is_completed ? "bg-slate-200 text-slate-700" :
+                          plan.status === "upcoming" ? "bg-indigo-100 text-indigo-800" :
+                          "bg-amber-100 text-amber-800"
+                        }`}>
+                          {plan.status || (plan.is_completed ? "completed" : "pending")}
                         </span>
                       </div>
                       
                       <h4 className={`font-bold text-sm sm:text-base mt-2 ${textCol} ${
-                        evt.is_completed ? "line-through text-slate-500" : ""
+                        plan.is_completed || plan.status === "completed" ? "line-through text-slate-500" : ""
                       }`}>
-                        {evt.title}
+                        {plan.title}
                       </h4>
                       
-                      {evt.subtitle && (
+                      {plan.description && (
                         <p className="text-xs text-slate-500 mt-1 max-w-xl font-medium">
-                          {evt.subtitle}
+                          {plan.description}
                         </p>
                       )}
 
-                      {evt.room_or_link && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 mt-2 bg-slate-100 px-2 py-0.5 rounded-md">
-                          <LuMapPin className="h-3 w-3" />
-                          {evt.room_or_link}
-                        </span>
+                      {(plan.from_meeting || plan.name || plan.device_id || plan.session_id) && (
+                        <div className="mt-3 flex flex-wrap gap-2 items-center">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg">
+                            <LuMapPin className="h-3 w-3" />
+                            Meeting Scheduled via Chat
+                          </span>
+                          {plan.name && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                              Name: {plan.name}
+                            </span>
+                          )}
+                          {plan.device_id && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-150">
+                              Device: {plan.device_id}
+                            </span>
+                          )}
+                          {plan.session_id && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-150">
+                              Session: {plan.session_id}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {plan.completed_at && (
+                        <p className="text-[10px] text-slate-400 mt-2 font-medium">
+                          Completed At: {new Date(plan.completed_at).toLocaleString()}
+                        </p>
                       )}
                     </div>
 
-                    {/* Completion checklist trigger toggle button */}
                     <button
-                      onClick={() => handleToggleCompletion(evt.id)}
+                      onClick={() => handleToggleCompletion(plan.plan_id)}
                       className={`h-8 w-8 rounded-full flex items-center justify-center border transition shadow-sm cursor-pointer ${
-                        evt.is_completed 
+                        plan.is_completed 
                           ? "bg-slate-500 border-slate-500 text-white" 
                           : "bg-white border-slate-200 text-slate-400 hover:border-indigo-500 hover:text-indigo-600"
                       }`}
@@ -421,10 +515,9 @@ export function AppDailyPlanner() {
         )}
       </div>
 
-      {/* 5. Draw Modal Sheet: Plan My Day Form */}
+      {/* 5. Plan My Day Form Drawer */}
       {showDrawer && (
         <div className="fixed inset-0 z-50 flex justify-end">
-          {/* Overlay mask */}
           <div 
             onClick={() => {
               setShowDrawer(false);
@@ -433,21 +526,19 @@ export function AppDailyPlanner() {
             className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs transition" 
           />
           
-          {/* Form container slideover */}
           <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col p-6 overflow-y-auto">
             <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-6 border-b border-slate-100 pb-3">
               <LuActivity className="h-5 w-5 text-indigo-600" />
               Plan Your Day
             </h2>
 
-            {/* Conflict Warning Alerts Block */}
             {conflictWarning && (
               <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
                 <LuTriangleAlert className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5 animate-bounce" />
                 <div>
                   <h4 className="text-xs font-bold text-amber-800">⚠️ Schedule Conflict Warning</h4>
                   <p className="text-[11px] text-amber-600 mt-1 font-medium">
-                    You already have <strong>"{conflictWarning.title}"</strong> scheduled within $\pm$30 mins of this time.
+                    You already have <strong>"{conflictWarning.title}"</strong> scheduled within ±30 mins of this time.
                   </p>
                   <div className="flex gap-3 mt-3">
                     <button
@@ -468,7 +559,6 @@ export function AppDailyPlanner() {
             )}
 
             <div className="space-y-5 flex-1">
-              {/* Task Title */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-1">TASK TITLE</label>
                 <input
@@ -480,9 +570,8 @@ export function AppDailyPlanner() {
                 />
               </div>
 
-              {/* Task Description */}
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">DESCRIPTION (SUBTITLE)</label>
+                <label className="block text-xs font-bold text-slate-500 mb-1">DESCRIPTION</label>
                 <textarea
                   placeholder="e.g., Online team video sync call..."
                   value={taskDesc}
@@ -492,7 +581,6 @@ export function AppDailyPlanner() {
                 />
               </div>
 
-              {/* Task Category Picker */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-1.5">CATEGORY</label>
                 <div className="flex flex-wrap gap-2">
@@ -516,7 +604,6 @@ export function AppDailyPlanner() {
                 </div>
               </div>
 
-              {/* Time Picker */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-1">TIME</label>
                 <input
@@ -527,7 +614,6 @@ export function AppDailyPlanner() {
                 />
               </div>
 
-              {/* Date Picker */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-1">DATE</label>
                 <input
@@ -539,7 +625,6 @@ export function AppDailyPlanner() {
               </div>
             </div>
 
-            {/* Action Buttons */}
             <div className="flex gap-3 border-t border-slate-100 pt-4 mt-6">
               <button
                 type="button"
