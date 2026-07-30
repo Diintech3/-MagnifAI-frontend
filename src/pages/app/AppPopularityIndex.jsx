@@ -3,7 +3,8 @@ import {
   LuRefreshCw, LuTrendingUp, LuStar, LuGlobe, LuUsers,
   LuInstagram, LuFacebook, LuYoutube, LuHeart, LuMessageCircle,
   LuEye, LuLink, LuUnlink,
-  LuArrowLeft, LuExternalLink, LuTwitter
+  LuArrowLeft, LuExternalLink, LuTwitter,
+  LuUserPlus, LuSearch, LuTrash2, LuPlus, LuCheck
 } from "react-icons/lu";
 import { useAuth } from "../../auth/AuthProvider";
 import { api } from "../../lib/api";
@@ -64,6 +65,129 @@ export function AppPopularityIndex() {
   const [timeRange, setTimeRange] = useState("7 Days");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
+
+  // People section state variables
+  const [peopleTab, setPeopleTab] = useState("new"); // "new" / "contacts" / "groups"
+  const [contacts, setContacts] = useState([]);
+  const [newlyJoined, setNewlyJoined] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [peopleSearch, setPeopleSearch] = useState("");
+  const [selectedContactIds, setSelectedContactIds] = useState([]);
+  
+  const [showAddContactForm, setShowAddContactForm] = useState(false);
+  const [addContactName, setAddContactName] = useState("");
+  const [addContactPhone, setAddContactPhone] = useState("");
+  const [addContactEmail, setAddContactEmail] = useState("");
+  
+  const [showCreateGroupForm, setShowCreateGroupForm] = useState(false);
+  const [createGroupName, setCreateGroupName] = useState("");
+  const [createGroupColor, setCreateGroupColor] = useState("#FFD54F");
+  
+  const [peopleLoading, setPeopleLoading] = useState(false);
+
+  const loadPeople = useCallback(async () => {
+    setPeopleLoading(true);
+    try {
+      const [contactsData, newMembersData, groupsData] = await Promise.all([
+        api(`/api/app/people/contacts?search=${encodeURIComponent(peopleSearch)}`, { token }),
+        api("/api/app/people/new", { token }),
+        api("/api/app/people/groups", { token })
+      ]);
+      setContacts(contactsData || []);
+      setNewlyJoined(newMembersData || []);
+      setGroups(groupsData || []);
+    } catch (e) {
+      console.error("Failed to load People data:", e.message);
+    } finally {
+      setPeopleLoading(false);
+    }
+  }, [peopleSearch, token]);
+
+  const onAddContact = async (e) => {
+    e.preventDefault();
+    if (!addContactName || !addContactPhone) return;
+    try {
+      await api("/api/app/people/contacts", {
+        method: "POST",
+        token,
+        body: { name: addContactName, phone: addContactPhone, email: addContactEmail }
+      });
+      toastSuccess("Contact added successfully!");
+      setShowAddContactForm(false);
+      setAddContactName("");
+      setAddContactPhone("");
+      setAddContactEmail("");
+      loadPeople();
+    } catch (err) {
+      toastFromError(err, "Failed to add contact");
+    }
+  };
+
+  const onSyncContacts = async () => {
+    // Generate dummy sync data to show it working
+    const mockContacts = [
+      { name: "Rahul Sharma", phone: "+91 98765 43210", email: "rahul@example.com" },
+      { name: "Priya Patel", phone: "+91 91234 56789", email: "priya@example.com" },
+      { name: "Sanya Malhotra", phone: "+91 95432 10987", email: "sanya@example.com" },
+      { name: "Vikram Malhotra", phone: "+91 98989 89898" }
+    ];
+    try {
+      const res = await api("/api/app/people/contacts/sync", {
+        method: "POST",
+        token,
+        body: { contacts: mockContacts }
+      });
+      toastSuccess(`Sync complete! Added: ${res.addedCount}, Updated: ${res.updatedCount}`);
+      loadPeople();
+    } catch (err) {
+      toastFromError(err, "Failed to sync contacts");
+    }
+  };
+
+  const onCreateGroup = async (e) => {
+    e.preventDefault();
+    if (!createGroupName) return;
+    try {
+      await api("/api/app/people/groups", {
+        method: "POST",
+        token,
+        body: {
+          name: createGroupName,
+          colorHex: createGroupColor,
+          memberIds: selectedContactIds
+        }
+      });
+      toastSuccess("Group created successfully!");
+      setShowCreateGroupForm(false);
+      setCreateGroupName("");
+      setSelectedContactIds([]);
+      loadPeople();
+    } catch (err) {
+      toastFromError(err, "Failed to create group");
+    }
+  };
+
+  const onDeleteGroup = async (groupId) => {
+    if (!window.confirm("Are you sure you want to delete this group?")) return;
+    try {
+      await api(`/api/app/people/groups/${groupId}`, { method: "DELETE", token });
+      toastSuccess("Group deleted");
+      loadPeople();
+    } catch (err) {
+      toastFromError(err, "Failed to delete group");
+    }
+  };
+
+  const onDeleteContact = async (contactId) => {
+    if (!window.confirm("Are you sure you want to delete this contact?")) return;
+    try {
+      await api(`/api/app/people/contacts/${contactId}`, { method: "DELETE", token });
+      toastSuccess("Contact deleted");
+      loadPeople();
+    } catch (err) {
+      toastFromError(err, "Failed to delete contact");
+    }
+  };
 
 
   const formatNumber = (val) => {
@@ -165,6 +289,13 @@ export function AppPopularityIndex() {
       loadSocial();
     });
   }, [loadSocial]);
+
+  // Fetch People data when dependencies change
+  useEffect(() => {
+    Promise.resolve().then(() => {
+      loadPeople();
+    });
+  }, [loadPeople]);
 
   async function onSavePlatform(e) {
     e.preventDefault();
@@ -335,7 +466,7 @@ export function AppPopularityIndex() {
 
                 {/* Filters */}
                 <div className="flex flex-wrap gap-2 mt-6 items-center">
-                  {["Today", "Yesterday", "7 Days", "Date Range"].map((t) => (
+                  {["Today", "Yesterday", "7 Days", "All", "Date Range"].map((t) => (
                     <button
                       key={t}
                       onClick={() => setTimeRange(t)}
@@ -447,7 +578,7 @@ export function AppPopularityIndex() {
                           const percent = Math.max(10, Math.min(100, (val / maxVal) * 100));
 
                           return (
-                            <div key={idx} className="flex-1 flex flex-col items-center z-10 h-full justify-end">
+                            <div key={idx} className="flex-1 min-w-0 flex flex-col items-center z-10 h-full justify-end">
                               <div
                                 className="w-full rounded-t-md bg-emerald-500 hover:bg-emerald-600 transition-all duration-300 shadow-sm relative group cursor-pointer"
                                 style={{ height: `${percent}%` }}
@@ -457,7 +588,7 @@ export function AppPopularityIndex() {
                                 </div>
                               </div>
                               <span className="text-[8px] font-bold text-slate-400 mt-1.5 truncate w-full text-center">
-                                {day.dayName}
+                                {chartData.length > 10 ? (idx % 5 === 0 ? day.dayName : "") : day.dayName}
                               </span>
                             </div>
                           );
@@ -509,7 +640,7 @@ export function AppPopularityIndex() {
                           const percent = Math.max(10, Math.min(100, (val / maxVal) * 100));
 
                           return (
-                            <div key={idx} className="flex-1 flex flex-col items-center z-10 h-full justify-end">
+                            <div key={idx} className="flex-1 min-w-0 flex flex-col items-center z-10 h-full justify-end">
                               <div
                                 className="w-full rounded-t-md bg-emerald-500 hover:bg-emerald-600 transition-all duration-300 shadow-sm relative group cursor-pointer"
                                 style={{ height: `${percent}%` }}
@@ -519,7 +650,7 @@ export function AppPopularityIndex() {
                                 </div>
                               </div>
                               <span className="text-[8px] font-bold text-slate-400 mt-1.5 truncate w-full text-center">
-                                {day.dayName}
+                                {chartData.length > 10 ? (idx % 5 === 0 ? day.dayName : "") : day.dayName}
                               </span>
                             </div>
                           );
@@ -571,7 +702,7 @@ export function AppPopularityIndex() {
                           const percent = Math.max(10, Math.min(100, (val / maxVal) * 100));
 
                           return (
-                            <div key={idx} className="flex-1 flex flex-col items-center z-10 h-full justify-end">
+                            <div key={idx} className="flex-1 min-w-0 flex flex-col items-center z-10 h-full justify-end">
                               <div
                                 className="w-full rounded-t-md bg-emerald-500 hover:bg-emerald-600 transition-all duration-300 shadow-sm relative group cursor-pointer"
                                 style={{ height: `${percent}%` }}
@@ -581,7 +712,7 @@ export function AppPopularityIndex() {
                                 </div>
                               </div>
                               <span className="text-[8px] font-bold text-slate-400 mt-1.5 truncate w-full text-center">
-                                {day.dayName}
+                                {chartData.length > 10 ? (idx % 5 === 0 ? day.dayName : "") : day.dayName}
                               </span>
                             </div>
                           );
@@ -633,7 +764,7 @@ export function AppPopularityIndex() {
                           const percent = Math.max(10, Math.min(100, (val / maxVal) * 100));
 
                           return (
-                            <div key={idx} className="flex-1 flex flex-col items-center z-10 h-full justify-end">
+                            <div key={idx} className="flex-1 min-w-0 flex flex-col items-center z-10 h-full justify-end">
                               <div
                                 className="w-full rounded-t-md bg-emerald-500 hover:bg-emerald-600 transition-all duration-300 shadow-sm relative group cursor-pointer"
                                 style={{ height: `${percent}%` }}
@@ -643,7 +774,7 @@ export function AppPopularityIndex() {
                                 </div>
                               </div>
                               <span className="text-[8px] font-bold text-slate-400 mt-1.5 truncate w-full text-center">
-                                {day.dayName}
+                                {chartData.length > 10 ? (idx % 5 === 0 ? day.dayName : "") : day.dayName}
                               </span>
                             </div>
                           );
@@ -725,6 +856,300 @@ export function AppPopularityIndex() {
           Campaign analytics are not active for this workspace.
         </div>
       )}
+
+      {/* PEOPLE SECTION */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm mb-6 animate-fadeIn">
+        <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-xl font-black text-slate-950">People</h3>
+              {newlyJoined.length > 0 && (
+                <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-700 border border-emerald-200">
+                  +{newlyJoined.length} New Joined
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">Gain knowledge everyday</p>
+          </div>
+          <button 
+            onClick={() => setPeopleTab(peopleTab === "contacts" ? "new" : "contacts")}
+            className="flex items-center gap-1.5 rounded-full bg-amber-400 border border-slate-900/10 px-4 py-1.5 text-xs font-black text-slate-900 shadow-sm transition hover:bg-amber-500"
+          >
+            View All &gt;
+          </button>
+        </div>
+
+        {/* Tab switcher buttons */}
+        <div className="flex bg-slate-100 rounded-xl p-1 mb-5 max-w-xs border border-slate-200/50">
+          {[
+            { key: "new", label: "New" },
+            { key: "contacts", label: "Contacts" },
+            { key: "groups", label: "Groups" }
+          ].map(t => (
+            <button
+              key={t.key}
+              onClick={() => {
+                setPeopleTab(t.key);
+                setSelectedContactIds([]);
+              }}
+              className={`flex-1 text-center py-1.5 rounded-lg text-xs font-bold transition-all ${
+                peopleTab === t.key
+                  ? "bg-white text-slate-900 shadow-sm border border-slate-200/20"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* --- 1. NEW TAB --- */}
+        {peopleTab === "new" && (
+          <div className="space-y-3">
+            {newlyJoined.length === 0 ? (
+              <p className="text-xs text-slate-400 italic py-4 text-center">No newly joined members found.</p>
+            ) : (
+              newlyJoined.map(member => (
+                <div key={member.id} className="flex items-center justify-between border-b border-slate-50 pb-3 last:border-0 last:pb-0">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center font-bold text-slate-600 text-sm">
+                      {member.avatar ? (
+                        <img src={member.avatar} alt={member.name} className="h-full w-full object-cover" />
+                      ) : (
+                        member.name.charAt(0)
+                      )}
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800">{member.name}</h4>
+                      <p className="text-xs text-slate-400">{member.phone}</p>
+                    </div>
+                  </div>
+                  <span className="text-xs text-slate-500 font-semibold bg-slate-100/80 px-2 py-0.5 rounded-md">
+                    {member.joinedAt}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* --- 2. CONTACTS TAB --- */}
+        {peopleTab === "contacts" && (
+          <div className="space-y-4">
+            {/* Search and Action Bar */}
+            <div className="flex gap-2 flex-wrap items-center">
+              <div className="relative flex-1 min-w-[200px]">
+                <LuSearch className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search contacts..."
+                  value={peopleSearch}
+                  onChange={(e) => setPeopleSearch(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-4 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <button
+                onClick={() => setShowAddContactForm(!showAddContactForm)}
+                className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 shadow-sm"
+              >
+                <LuUserPlus className="h-3.5 w-3.5" /> Add Contact
+              </button>
+              <button
+                onClick={onSyncContacts}
+                className="flex items-center gap-1.5 rounded-xl bg-slate-800 text-white px-3 py-2 text-xs font-semibold hover:bg-slate-900 shadow-sm"
+                title="Mock sync of device contacts"
+              >
+                <LuRefreshCw className="h-3.5 w-3.5" /> Sync
+              </button>
+            </div>
+
+            {/* Inline Add Contact Form */}
+            {showAddContactForm && (
+              <form onSubmit={onAddContact} className="bg-slate-50 border border-slate-100 rounded-xl p-4 space-y-3 animate-fadeIn">
+                <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">New Contact Detail</h4>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={addContactName}
+                      onChange={(e) => setAddContactName(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Phone *</label>
+                    <input
+                      type="text"
+                      required
+                      value={addContactPhone}
+                      onChange={(e) => setAddContactPhone(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={addContactEmail}
+                      onChange={(e) => setAddContactEmail(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-1">
+                  <button type="button" onClick={() => setShowAddContactForm(false)} className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs hover:bg-slate-100 font-semibold text-slate-600">Cancel</button>
+                  <button type="submit" className="px-4 py-1.5 rounded-lg bg-amber-400 border border-slate-900/10 text-xs font-bold text-slate-900 shadow">Save Contact</button>
+                </div>
+              </form>
+            )}
+
+            {/* Checkbox Group Creation Action Bar */}
+            {selectedContactIds.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col gap-3 justify-between items-start sm:flex-row sm:items-center animate-fadeIn shadow-sm">
+                <div>
+                  <span className="text-xs font-black text-amber-900">{selectedContactIds.length} Contacts Selected</span>
+                  <p className="text-[10px] text-amber-700">Combine selected contacts into a custom group</p>
+                </div>
+                
+                {showCreateGroupForm ? (
+                  <form onSubmit={onCreateGroup} className="flex gap-2 flex-wrap items-center w-full sm:w-auto">
+                    <input
+                      type="text"
+                      placeholder="Group Name..."
+                      required
+                      value={createGroupName}
+                      onChange={(e) => setCreateGroupName(e.target.value)}
+                      className="rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                    <select
+                      value={createGroupColor}
+                      onChange={(e) => setCreateGroupColor(e.target.value)}
+                      className="rounded-lg border border-amber-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400 font-bold"
+                    >
+                      <option value="#FFD54F">Yellow</option>
+                      <option value="#EC4899">Pink</option>
+                      <option value="#3B82F6">Blue</option>
+                      <option value="#10B981">Green</option>
+                      <option value="#8B5CF6">Purple</option>
+                    </select>
+                    <button type="submit" className="px-3.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800">
+                      Create
+                    </button>
+                    <button type="button" onClick={() => { setShowCreateGroupForm(false); setSelectedContactIds([]); }} className="px-3 py-1.5 rounded-lg border border-amber-200 text-xs hover:bg-white text-slate-600 font-bold">
+                      Cancel
+                    </button>
+                  </form>
+                ) : (
+                  <button
+                    onClick={() => setShowCreateGroupForm(true)}
+                    className="flex items-center gap-1.5 rounded-lg bg-amber-500 border border-slate-900/10 text-white px-3.5 py-1.5 text-xs font-bold shadow-sm hover:bg-amber-600"
+                  >
+                    <LuPlus className="h-3.5 w-3.5" /> Make Group
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Contacts list */}
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+              {contacts.length === 0 ? (
+                <p className="text-xs text-slate-400 italic py-4 text-center">No contacts found.</p>
+              ) : (
+                contacts.map(c => (
+                  <div key={c.id} className="flex items-center justify-between border-b border-slate-50 pb-3 last:border-0 last:pb-0 hover:bg-slate-50/50 rounded-lg p-1.5 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedContactIds.includes(c.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedContactIds(prev => [...prev, c.id]);
+                          } else {
+                            setSelectedContactIds(prev => prev.filter(id => id !== c.id));
+                          }
+                        }}
+                        className="rounded border-slate-300 text-amber-500 focus:ring-amber-400 h-3.5 w-3.5"
+                      />
+                      <div className="h-9 w-9 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center font-bold text-slate-600 text-xs">
+                        {c.avatar ? (
+                          <img src={c.avatar} alt={c.name} className="h-full w-full object-cover" />
+                        ) : (
+                          c.name.charAt(0)
+                        )}
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-800">{c.name}</h4>
+                        <p className="text-xs text-slate-400">{c.phone} {c.email ? `• ${c.email}` : ""}</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => onDeleteContact(c.id)}
+                      className="text-slate-400 hover:text-red-500 p-1.5 transition-colors"
+                      title="Delete Contact"
+                    >
+                      <LuTrash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* --- 3. GROUPS TAB --- */}
+        {peopleTab === "groups" && (
+          <div className="space-y-4">
+            {/* Create Group Quick Action */}
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-bold text-slate-500">Workspace Groups ({groups.length})</span>
+              <button
+                onClick={() => {
+                  setPeopleTab("contacts");
+                  toastSuccess("Select contacts below first to form a group!");
+                }}
+                className="flex items-center gap-1.5 rounded-xl bg-amber-400 border border-slate-900/10 text-slate-900 px-3 py-1.5 text-xs font-black shadow-sm hover:bg-amber-500"
+              >
+                <LuPlus className="h-3.5 w-3.5" /> Create Group
+              </button>
+            </div>
+
+            {/* Groups list */}
+            <div className="space-y-3">
+              {groups.length === 0 ? (
+                <p className="text-xs text-slate-400 italic py-4 text-center">No groups found.</p>
+              ) : (
+                groups.map(g => (
+                  <div key={g.id} className="flex items-center justify-between border border-slate-100 bg-slate-50/30 rounded-xl p-4 shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-sm" style={{ backgroundColor: g.colorHex || "#FFD54F" }}>
+                        <LuUsers className="h-5 w-5" strokeWidth={2} />
+                      </span>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-800">{g.name}</h4>
+                        <div className="flex flex-wrap items-center gap-1 text-[11px] text-slate-500 font-semibold mt-0.5">
+                          <span>{g.membersCount} Members</span>
+                          {g.members && g.members.length > 0 && (
+                            <span className="opacity-70">• {(g.members || []).map(m => m.name).slice(0, 3).join(", ") + (g.members.length > 3 ? "..." : "")}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => onDeleteGroup(g.id)}
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-red-50 text-red-600 hover:bg-red-100 border border-red-100 transition shadow-sm"
+                      title="Delete Group"
+                    >
+                      <LuTrash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* CEO POPULARITY INDEX SECTION (EXISTING WORK) -> PLACED AT THE BOTTOM */}
       <div className="border-t border-slate-200/60 pt-8 mt-10">
