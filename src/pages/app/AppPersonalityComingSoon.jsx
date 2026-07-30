@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { useAuth } from "../../auth/AuthProvider";
 import { api, apiForm, mediaUrl } from "../../lib/api";
 import { toastFromError, toastSuccess } from "../../lib/toast";
-import { LuUser, LuPlus, LuEye, LuX, LuPlay, LuPause, LuRotateCcw, LuImage, LuClock, LuCalendar, LuCircleHelp, LuHeading, LuSparkles, LuPencil, LuTrash2, LuArrowLeft } from "react-icons/lu";
+import { LuUser, LuPlus, LuEye, LuX, LuPlay, LuPause, LuRotateCcw, LuImage, LuClock, LuCalendar, LuCircleHelp, LuHeading, LuSparkles, LuPencil, LuTrash2, LuArrowLeft, LuCheck } from "react-icons/lu";
 
 
 
@@ -15,7 +15,26 @@ export function AppPersonalityComingSoon() {
   const [workspaceTab, setWorkspaceTab] = useState("Script Text");
 
   useEffect(() => {
-    setWorkspaceTab("Script Text");
+    if (viewScript) {
+      const status = viewScript.approvalStatus;
+      if (status === "Approved") {
+        setWorkspaceTab("Approved Video");
+      } else if (status === "Objection" || status === "Rejected") {
+        setWorkspaceTab("Objections / Rejected");
+      } else if (status === "Submitted" || status === "Editing") {
+        setWorkspaceTab("AI Processing");
+      } else if (status === "Edited") {
+        setWorkspaceTab("Review & Action");
+      } else {
+        if (viewScript.rawVideoUrl) {
+          setWorkspaceTab("Raw Video");
+        } else {
+          setWorkspaceTab("Script Text");
+        }
+      }
+    } else {
+      setWorkspaceTab("Script Text");
+    }
   }, [viewScript]);
   
   // Teleprompter Modal State
@@ -224,7 +243,28 @@ export function AppPersonalityComingSoon() {
     setDescription(s.description || "");
     setCategory(s.category);
     setDuration(s.duration || "45s");
-    setScheduledAt(getLocalDateTimeString(new Date(s.createdAt || Date.now())));
+
+    // Restore scheduled date/time from existing script data for reschedule support
+    let restoreDate = new Date();
+    if (s.scheduledDate && s.scheduledDate !== "Self-scheduled") {
+      const parsed = new Date(s.scheduledDate);
+      if (!isNaN(parsed.getTime())) restoreDate = parsed;
+    }
+    // Try to apply existing time if available
+    if (s.scheduledTime && s.scheduledTime !== "Self-scheduled") {
+      const timeParts = s.scheduledTime.replace(/(am|pm)/i, "").trim().split(":");
+      let hr = Number(timeParts[0]) || 0;
+      const min = Number(timeParts[1]) || 0;
+      const ampmMatch = s.scheduledTime.match(/(am|pm)/i);
+      if (ampmMatch) {
+        const isPm = ampmMatch[0].toLowerCase() === "pm";
+        if (isPm && hr < 12) hr += 12;
+        if (!isPm && hr === 12) hr = 0;
+      }
+      restoreDate.setHours(hr, min, 0, 0);
+    }
+    setScheduledAt(getLocalDateTimeString(restoreDate));
+
     setImageFile(null);
     setImagePreview("");
     setModalOpen(true);
@@ -419,44 +459,33 @@ export function AppPersonalityComingSoon() {
 
   const getWorkflowHelperText = (s) => {
     if (s.processingStatus === "failed") {
-      return "❌ Last AI Video Edit attempt failed. Please click 'AI Edit' below to retry.";
+      return "❌ Last AI Video Edit attempt failed. Please contact Admin to retry.";
     }
-    const isAdmin = s.createdByAdmin;
-    if (isAdmin) {
-      if (s.approvalStatus === "Pending" || s.approvalStatus === "Waiting") {
-        return "👉 Action Required: Accept this assigned script template to begin.";
-      }
-      if (s.approvalStatus === "Submitted" && !s.rawVideoUrl) {
-        return "👉 Next Step: Record your speech and upload the raw video.";
-      }
-      if (s.approvalStatus === "Submitted" && s.rawVideoUrl) {
-        return "👉 Next Step: Click 'AI Edit' to start processing, or 'Approve' to send it raw.";
-      }
-      if (s.approvalStatus === "Editing") {
-        return "⚡ AI Video Editing is processing in the background. Please wait...";
-      }
-      if (s.approvalStatus === "Edited") {
-        return "🎉 AI Edited video is ready! Play it above and click 'Accept' or request a change.";
-      }
-      if (s.approvalStatus === "Approved") {
-        return "✅ Video Approved & Published successfully!";
-      }
-      if (s.approvalStatus === "Objection") {
-        return "⚠️ Objection note received. Please re-upload or adjust video.";
-      }
-    } else {
-      if (s.approvalStatus === "Draft" && !s.rawVideoUrl) {
-        return "👉 Next Step: Click 'Start' to read on teleprompter, then upload video.";
-      }
-      if (s.rawVideoUrl && s.approvalStatus !== "Editing" && s.approvalStatus !== "Approved") {
-        return "👉 Next Step: Click 'AI Edit' to auto-generate captions and music.";
-      }
-      if (s.approvalStatus === "Editing") {
-        return "⚡ AI Video Editing is processing in the background. Please wait...";
-      }
-      if (s.approvalStatus === "Approved") {
-        return "✅ Script Video completed and approved!";
-      }
+    
+    if (!s.rawVideoUrl) {
+      return "👉 Next Step: Click 'Raw Video' tab to record or upload your video.";
+    }
+
+    if (s.approvalStatus === "Pending" || s.approvalStatus === "Waiting" || s.approvalStatus === "Draft") {
+      return "👉 Next Step: Preview your video on 'Raw Video' tab and click 'Submit to Admin' to send it.";
+    }
+    if (s.approvalStatus === "Submitted") {
+      return "⏳ Awaiting Admin review to trigger AI Video Editing.";
+    }
+    if (s.approvalStatus === "Editing") {
+      return "⚡ AI Video Editing is processing in the background. Please wait...";
+    }
+    if (s.approvalStatus === "Edited") {
+      return "🎉 AI Edited video is ready! Play it above and click 'Accept' or request a change.";
+    }
+    if (s.approvalStatus === "Approved") {
+      return "✅ Video Approved & Finalized successfully!";
+    }
+    if (s.approvalStatus === "Objection") {
+      return "⚠️ Objection note received. Please re-upload or adjust video on 'Raw Video' tab.";
+    }
+    if (s.approvalStatus === "Rejected") {
+      return "❌ Video Rejected by Admin.";
     }
     return "";
   };
@@ -522,21 +551,52 @@ export function AppPersonalityComingSoon() {
               Raw Video
             </button>
             <button
-              onClick={() => setWorkspaceTab("AI Edited Video")}
+              onClick={() => setWorkspaceTab("AI Processing")}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
-                workspaceTab === "AI Edited Video"
+                workspaceTab === "AI Processing"
                   ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow"
                   : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
               }`}
             >
-              AI Edited Video
+              AI Processing
+            </button>
+            <button
+              onClick={() => setWorkspaceTab("Review & Action")}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+                workspaceTab === "Review & Action"
+                  ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow"
+                  : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              Review & Action
+            </button>
+            <button
+              onClick={() => setWorkspaceTab("Approved Video")}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+                workspaceTab === "Approved Video"
+                  ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow"
+                  : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              Approved Video
+            </button>
+            <button
+              onClick={() => setWorkspaceTab("Objections / Rejected")}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+                workspaceTab === "Objections / Rejected"
+                  ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow"
+                  : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              Objections / Rejected
             </button>
           </div>
 
           {/* Workspace Tab Content */}
           <div className="flex-1">
             {workspaceTab === "Script Text" && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Left side info (1/3 column) */}
                 <div className="lg:col-span-1 space-y-5">
                   {viewScript.imageUrl && (
@@ -565,35 +625,65 @@ export function AppPersonalityComingSoon() {
                   </div>
                 </div>
               </div>
+              {/* Accept Script Banner */}
+              {(viewScript.approvalStatus === "Pending" || viewScript.approvalStatus === "Waiting") && (
+                <div className="bg-indigo-50 border border-indigo-150 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 mt-5">
+                  <div>
+                    <span className="block text-sm font-bold text-indigo-900">Accept this Script Assignment</span>
+                    <span className="block text-xs text-indigo-600 mt-0.5 font-medium">Please review the script text and accept the assignment to enable recording and video uploading.</span>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={updatingId === viewScript.scriptId}
+                    onClick={() => updateScriptStatus(viewScript.scriptId, "Submitted")}
+                    className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-750 text-white px-5 py-2.5 text-xs font-bold transition shadow cursor-pointer shrink-0"
+                  >
+                    <LuCheck className="h-4 w-4" /> Accept Script
+                  </button>
+                </div>
+              )}
+              </>
             )}
 
             {workspaceTab === "Raw Video" && (
               <div className="space-y-6">
-                {/* Guided actions for teleprompter start/upload */}
-                {(viewScript.approvalStatus === "Draft" || viewScript.approvalStatus === "Objection" || (viewScript.approvalStatus === "Submitted" && !viewScript.rawVideoUrl)) && (
-                  <div className="bg-orange-50/50 p-4 rounded-xl border border-orange-100/70 flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                      <span className="block text-xs font-bold text-orange-950">Record Video on Teleprompter</span>
-                      <span className="block text-[10px] text-orange-600 mt-0.5">Read script while recording, or upload pre-recorded video.</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => startTeleprompter(viewScript)}
-                        className="flex items-center gap-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white px-3.5 py-2 text-xs font-bold transition shadow-xs cursor-pointer"
-                      >
-                        <LuPlay className="h-3.5 w-3.5" /> Start Recording
-                      </button>
-                      <label className="flex items-center gap-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-3.5 py-2 text-xs font-bold transition cursor-pointer shadow-xs">
-                        Upload Video File
-                        <input
-                          type="file"
-                          accept="video/*"
-                          onChange={(e) => { handleVideoUpload(viewScript.scriptId, e); setViewScript(null); }}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
+                {/* Block actions if script is not accepted yet */}
+                {(viewScript.approvalStatus === "Pending" || viewScript.approvalStatus === "Waiting") ? (
+                  <div className="flex flex-col items-center justify-center text-slate-400 py-16 text-center border-2 border-dashed border-slate-200 rounded-2xl bg-white shadow-2xs">
+                    <LuUser className="h-10 w-10 text-slate-350 mb-3 animate-pulse" />
+                    <h4 className="text-sm font-bold text-slate-800">Script Not Accepted Yet</h4>
+                    <p className="text-xs text-slate-500 mt-1 max-w-[320px] leading-relaxed">
+                      You must accept this script under the <strong>Script Text</strong> tab before you can record or upload a video.
+                    </p>
                   </div>
+                ) : (
+                  /* Guided actions for teleprompter start/upload */
+                  (viewScript.approvalStatus === "Draft" || viewScript.approvalStatus === "Objection" || (viewScript.approvalStatus === "Submitted" && !viewScript.rawVideoUrl)) && (
+                    <div className="bg-orange-50/50 p-4 rounded-xl border border-orange-100/70 flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <span className="block text-xs font-bold text-orange-950">Record Video on Teleprompter</span>
+                        <span className="block text-[10px] text-orange-600 mt-0.5">Read script while recording, or upload pre-recorded video.</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startTeleprompter(viewScript)}
+                          className="flex items-center gap-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white px-3.5 py-2 text-xs font-bold transition shadow-xs cursor-pointer"
+                        >
+                          <LuPlay className="h-3.5 w-3.5" /> Start Recording
+                        </button>
+                        <label className="flex items-center gap-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-3.5 py-2 text-xs font-bold transition cursor-pointer shadow-xs">
+                          Upload Video File
+                          <input
+                            type="file"
+                            accept="video/*"
+                            onChange={(e) => { handleVideoUpload(viewScript.scriptId, e); setViewScript(null); }}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  )
                 )}
 
                 {/* Raw Video display */}
@@ -608,33 +698,32 @@ export function AppPersonalityComingSoon() {
                     </div>
                   )}
                 </div>
+
+                {viewScript.rawVideoUrl && (viewScript.approvalStatus === "Pending" || viewScript.approvalStatus === "Draft" || viewScript.approvalStatus === "Objection") && (
+                  <div className="bg-orange-50/50 p-4 rounded-xl border border-orange-100 flex items-center justify-between gap-4 max-w-xl mx-auto mt-4 shrink-0">
+                    <div>
+                      <span className="block text-xs font-bold text-orange-950">Ready to Submit?</span>
+                      <span className="block text-[10px] text-orange-600 mt-0.5">Please review your video above. Once finalized, submit it for review.</span>
+                    </div>
+                    <button
+                      disabled={updatingId === viewScript.scriptId}
+                      onClick={() => { updateScriptStatus(viewScript.scriptId, "Submitted"); setViewScript(null); }}
+                      className="rounded-lg bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 text-xs font-bold transition shadow-xs cursor-pointer shrink-0"
+                    >
+                      Submit
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
-            {workspaceTab === "AI Edited Video" && (
+            {workspaceTab === "AI Processing" && (
               <div className="space-y-6">
-                {/* Guided actions for AI editing or approval */}
                 {viewScript.approvalStatus === "Submitted" && viewScript.rawVideoUrl && (
                   <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 flex flex-wrap items-center justify-between gap-4">
                     <div>
-                      <span className="block text-xs font-bold text-indigo-900">Request AI Video Editing</span>
-                      <span className="block text-[10px] text-indigo-605 mt-0.5">Let AI edit captions, colors, and background music automatically.</span>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        disabled={updatingId === viewScript.scriptId}
-                        onClick={() => { updateScriptStatus(viewScript.scriptId, "Editing"); setViewScript(null); }}
-                        className="flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 text-xs font-bold transition shadow cursor-pointer"
-                      >
-                        <LuSparkles className="h-3.5 w-3.5" /> AI Edit Video
-                      </button>
-                      <button
-                        disabled={updatingId === viewScript.scriptId}
-                        onClick={() => { updateScriptStatus(viewScript.scriptId, "Approved"); setViewScript(null); }}
-                        className="rounded-lg bg-green-600 hover:bg-green-700 text-white px-3.5 py-2 text-xs font-bold transition shadow cursor-pointer"
-                      >
-                        Direct Approve
-                      </button>
+                      <span className="block text-xs font-bold text-indigo-900">Awaiting Admin Review</span>
+                      <span className="block text-[10px] text-indigo-650 mt-0.5 font-medium">Your raw video has been uploaded successfully. Admin will review the video to trigger AI editing.</span>
                     </div>
                   </div>
                 )}
@@ -646,65 +735,151 @@ export function AppPersonalityComingSoon() {
                   </div>
                 )}
 
-                {viewScript.approvalStatus === "Edited" && (
-                  <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                      <span className="block text-xs font-bold text-indigo-900">Review and Accept AI Video</span>
-                      <span className="block text-[10px] text-indigo-605 mt-0.5">Verify if the AI edited video is correct and accept/approve it.</span>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        disabled={updatingId === viewScript.scriptId}
-                        onClick={() => { updateScriptStatus(viewScript.scriptId, "Approved"); setViewScript(null); }}
-                        className="rounded-lg bg-green-600 hover:bg-green-700 px-3.5 py-2 text-xs font-bold text-white transition shadow cursor-pointer"
-                      >
-                        Accept Video
-                      </button>
-                      <button
-                        disabled={updatingId === viewScript.scriptId}
-                        onClick={() => { setObjectionScript(viewScript); setViewScript(null); }}
-                        className="rounded-lg bg-orange-500 hover:bg-orange-600 px-3.5 py-2 text-xs font-bold text-white transition shadow cursor-pointer"
-                      >
-                        Objection
-                      </button>
-                      <button
-                        disabled={updatingId === viewScript.scriptId}
-                        onClick={() => { updateScriptStatus(viewScript.scriptId, "Rejected"); setViewScript(null); }}
-                        className="rounded-lg bg-red-600 hover:bg-red-700 px-3.5 py-2 text-xs font-bold text-white transition shadow cursor-pointer"
-                      >
-                        Reject Video
-                      </button>
-                    </div>
+                {!["Submitted", "Editing"].includes(viewScript.approvalStatus) && (
+                  <div className="text-sm text-slate-400 italic py-16 text-center border border-dashed border-slate-200 rounded-xl w-full">
+                    {["Draft", "Pending", "Waiting"].includes(viewScript.approvalStatus) 
+                      ? "No raw video has been submitted for AI processing yet. Please go to the 'Raw Video' tab to upload/record first." 
+                      : "AI Video Editing is completed. Current Status: " + viewScript.approvalStatus}
                   </div>
                 )}
+              </div>
+            )}
 
-                {/* Video Player Display */}
-                <div className="flex flex-col">
-                  {(viewScript.processedVideoUrl || viewScript.viralVideoUrl) ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 justify-center">
-                      {viewScript.processedVideoUrl && (
-                        <div className="flex flex-col items-center">
-                          <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">AI Edited Video</span>
-                          <div className="rounded-xl overflow-hidden bg-black aspect-video w-full border border-slate-200 shadow-sm">
-                            <video src={mediaUrl(viewScript.processedVideoUrl)} controls className="w-full h-full object-contain" />
-                          </div>
+            {workspaceTab === "Review & Action" && (
+              <div className="space-y-6">
+                {viewScript.approvalStatus === "Edited" ? (
+                  <>
+                    <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <span className="block text-xs font-bold text-indigo-900">Review and Accept AI Video</span>
+                        <span className="block text-[10px] text-indigo-605 mt-0.5">Verify if the AI edited video is correct and accept/approve it.</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          disabled={updatingId === viewScript.scriptId}
+                          onClick={() => { updateScriptStatus(viewScript.scriptId, "Approved"); setViewScript(null); }}
+                          className="rounded-lg bg-green-600 hover:bg-green-700 px-3.5 py-2 text-xs font-bold text-white transition shadow cursor-pointer"
+                        >
+                          Accept Video
+                        </button>
+                        <button
+                          disabled={updatingId === viewScript.scriptId}
+                          onClick={() => { setObjectionScript(viewScript); setViewScript(null); }}
+                          className="rounded-lg bg-orange-500 hover:bg-orange-600 px-3.5 py-2 text-xs font-bold text-white transition shadow cursor-pointer"
+                        >
+                          Objection
+                        </button>
+                        <button
+                          disabled={updatingId === viewScript.scriptId}
+                          onClick={() => { updateScriptStatus(viewScript.scriptId, "Rejected"); setViewScript(null); }}
+                          className="rounded-lg bg-red-600 hover:bg-red-700 px-3.5 py-2 text-xs font-bold text-white transition shadow cursor-pointer"
+                        >
+                          Reject Video
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col items-center">
+                      <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">AI Edited Video</span>
+                      {viewScript.processedVideoUrl ? (
+                        <div className="rounded-xl overflow-hidden bg-black aspect-video w-full max-w-xl border border-slate-200 shadow-sm">
+                          <video src={mediaUrl(viewScript.processedVideoUrl)} controls className="w-full h-full object-contain" />
                         </div>
-                      )}
-                      {viewScript.viralVideoUrl && (
-                        <div className="flex flex-col items-center">
-                          <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">AI Viral-Optimized Video</span>
-                          <div className="rounded-xl overflow-hidden bg-black aspect-video w-full border border-slate-200 shadow-sm">
-                            <video src={mediaUrl(viewScript.viralVideoUrl)} controls className="w-full h-full object-contain" />
-                          </div>
+                      ) : (
+                        <div className="text-sm text-slate-400 italic py-16 text-center border border-dashed border-slate-200 rounded-xl w-full">
+                          AI Edited video is not available yet.
                         </div>
                       )}
                     </div>
-                  ) : (
-                    <div className="text-sm text-slate-400 italic py-16 text-center border border-dashed border-slate-200 rounded-xl w-full">
-                      No edited videos generated yet by AI.
+                  </>
+                ) : (
+                  <div className="text-sm text-slate-400 italic py-16 text-center border border-dashed border-slate-200 rounded-xl w-full">
+                    No AI Edited video is currently pending review. Current status: {viewScript.approvalStatus}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {workspaceTab === "Approved Video" && (
+              <div className="space-y-6">
+                {viewScript.approvalStatus === "Approved" ? (
+                  <>
+                    <div className="bg-green-50 p-4 rounded-xl border border-green-100">
+                      <span className="block text-xs font-bold text-green-950">✅ Final Approved Content</span>
+                      <span className="block text-[10px] text-green-600 mt-0.5">This video has been successfully approved and finalized.</span>
                     </div>
-                  )}
-                </div>
+
+                    <div className="flex flex-col">
+                      {(viewScript.processedVideoUrl || viewScript.viralVideoUrl) ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 justify-center">
+                          {viewScript.processedVideoUrl && (
+                            <div className="flex flex-col items-center">
+                              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Approved AI Edited Video</span>
+                              <div className="rounded-xl overflow-hidden bg-black aspect-video w-full border border-slate-200 shadow-sm">
+                                <video src={mediaUrl(viewScript.processedVideoUrl)} controls className="w-full h-full object-contain" />
+                              </div>
+                            </div>
+                          )}
+                          {viewScript.viralVideoUrl && (
+                            <div className="flex flex-col items-center">
+                              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Approved AI Viral-Optimized Video</span>
+                              <div className="rounded-xl overflow-hidden bg-black aspect-video w-full border border-slate-200 shadow-sm">
+                                <video src={mediaUrl(viewScript.viralVideoUrl)} controls className="w-full h-full object-contain" />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-slate-400 italic py-16 text-center border border-dashed border-slate-200 rounded-xl w-full">
+                          Approved videos are not available.
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm text-slate-400 italic py-16 text-center border border-dashed border-slate-200 rounded-xl w-full">
+                    This video has not been approved yet. Current status: {viewScript.approvalStatus}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {workspaceTab === "Objections / Rejected" && (
+              <div className="space-y-6">
+                {["Objection", "Rejected"].includes(viewScript.approvalStatus) ? (
+                  <>
+                    <div className="bg-red-50 p-4 rounded-xl border border-red-100">
+                      <span className="block text-xs font-bold text-red-950">
+                        {viewScript.approvalStatus === "Objection" ? "⚠️ Objection Raised" : "❌ Video Rejected"}
+                      </span>
+                      {viewScript.objectionNote && (
+                        <div className="mt-2 text-xs text-red-750 bg-white/70 p-2.5 rounded-lg border border-red-200/50 whitespace-pre-wrap font-sans">
+                          <strong>Note:</strong> {viewScript.objectionNote}
+                        </div>
+                      )}
+                      <span className="block text-[10px] text-red-600 mt-2">
+                        Please record or upload a corrected video file in the <strong>Raw Video</strong> tab and submit again.
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col items-center">
+                      <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Previous Raw Video Preview</span>
+                      {viewScript.rawVideoUrl ? (
+                        <div className="rounded-xl overflow-hidden bg-black aspect-video w-full max-w-xl border border-slate-200 shadow-sm">
+                          <video src={mediaUrl(viewScript.rawVideoUrl)} controls className="w-full h-full object-contain" />
+                        </div>
+                      ) : (
+                        <div className="text-sm text-slate-400 italic py-16 text-center border border-dashed border-slate-200 rounded-xl w-full">
+                          No raw video preview available.
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm text-slate-400 italic py-16 text-center border border-dashed border-slate-200 rounded-xl w-full">
+                    No objections or rejections for this script. Current status: {viewScript.approvalStatus}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -749,24 +924,54 @@ export function AppPersonalityComingSoon() {
             All ({scripts.length})
           </button>
           <button
-            onClick={() => setActiveTab("My Scripts")}
+            onClick={() => setActiveTab("Scripts")}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
-              activeTab === "My Scripts"
+              activeTab === "Scripts"
                 ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow"
                 : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
             }`}
           >
-            My Scripts ({scripts.filter(s => !s.createdByAdmin).length})
+            Scripts / Drafts ({scripts.filter(s => ["Draft", "Pending", "Waiting"].includes(s.approvalStatus)).length})
           </button>
           <button
-            onClick={() => setActiveTab("Assigned Scripts")}
+            onClick={() => setActiveTab("Processing")}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
-              activeTab === "Assigned Scripts"
+              activeTab === "Processing"
                 ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow"
                 : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
             }`}
           >
-            Assigned Scripts ({scripts.filter(s => s.createdByAdmin).length})
+            Processing ({scripts.filter(s => ["Submitted", "Editing"].includes(s.approvalStatus)).length})
+          </button>
+          <button
+            onClick={() => setActiveTab("Ready for Review")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+              activeTab === "Ready for Review"
+                ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow"
+                : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            Ready for Review ({scripts.filter(s => s.approvalStatus === "Edited").length})
+          </button>
+          <button
+            onClick={() => setActiveTab("Approved")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+              activeTab === "Approved"
+                ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow"
+                : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            Approved ({scripts.filter(s => s.approvalStatus === "Approved").length})
+          </button>
+          <button
+            onClick={() => setActiveTab("Objections / Rejected")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+              activeTab === "Objections / Rejected"
+                ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow"
+                : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            Objections / Rejected ({scripts.filter(s => ["Objection", "Rejected"].includes(s.approvalStatus)).length})
           </button>
         </div>
       )}
@@ -776,8 +981,11 @@ export function AppPersonalityComingSoon() {
         <div className="py-12 text-center text-slate-400 animate-pulse">Loading scripts…</div>
       ) : (() => {
         const filteredScripts = scripts.filter(s => {
-          if (activeTab === "My Scripts") return !s.createdByAdmin;
-          if (activeTab === "Assigned Scripts") return s.createdByAdmin;
+          if (activeTab === "Scripts") return ["Draft", "Pending", "Waiting"].includes(s.approvalStatus);
+          if (activeTab === "Processing") return ["Submitted", "Editing"].includes(s.approvalStatus);
+          if (activeTab === "Ready for Review") return s.approvalStatus === "Edited";
+          if (activeTab === "Approved") return s.approvalStatus === "Approved";
+          if (activeTab === "Objections / Rejected") return ["Objection", "Rejected"].includes(s.approvalStatus);
           return true;
         });
 
@@ -848,24 +1056,25 @@ export function AppPersonalityComingSoon() {
                     >
                       <LuEye className="h-4 w-4" />
                     </button>
-                    {/* Delete button only if user created this script (not admin assigned) */}
+                    {/* Edit button: only self-created, no-action-taken scripts (Draft/Pending only) */}
+                    {!s.createdByAdmin && (s.approvalStatus === "Draft" || s.approvalStatus === "Pending") && (
+                      <button
+                        onClick={() => openEdit(s)}
+                        className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 transition cursor-pointer"
+                        title="Edit / Reschedule"
+                      >
+                        <LuPencil className="h-4 w-4" />
+                      </button>
+                    )}
+                    {/* Delete button: only self-created Draft scripts */}
                     {s.userId === user?.id && !s.createdByAdmin && s.approvalStatus === "Draft" && (
-                      <>
-                        <button
-                          onClick={() => openEdit(s)}
-                          className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 transition cursor-pointer"
-                          title="Edit script"
-                        >
-                          <LuPencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(s.scriptId)}
-                          className="rounded-lg border border-slate-200 p-1.5 text-red-500 hover:bg-red-50 transition cursor-pointer"
-                          title="Delete script"
-                        >
-                          <LuTrash2 className="h-4 w-4" />
-                        </button>
-                      </>
+                      <button
+                        onClick={() => handleDelete(s.scriptId)}
+                        className="rounded-lg border border-slate-200 p-1.5 text-red-500 hover:bg-red-50 transition cursor-pointer"
+                        title="Delete script"
+                      >
+                        <LuTrash2 className="h-4 w-4" />
+                      </button>
                     )}
                   </div>
                 </div>

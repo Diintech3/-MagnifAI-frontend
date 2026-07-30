@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Modal } from "./Modal";
 import { api, apiForm } from "../lib/api";
 import { toastFromError, toastSuccess } from "../lib/toast";
+import { LuEye, LuEyeOff } from "react-icons/lu";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/20";
@@ -55,6 +56,8 @@ export function AddAppModal({ open, onClose, onSaved, token, editApp }) {
   const [logoPreview, setLogoPreview] = useState("");
   const [appOptions, setAppOptions] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const isEdit = Boolean(editApp);
 
   useEffect(() => {
@@ -208,16 +211,34 @@ export function AddAppModal({ open, onClose, onSaved, token, editApp }) {
         <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-5">
           <SectionTitle number="3" title="Login Credentials" desc="Set the password for this app's login" />
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Field label="Password" required={!isEdit} hint={isEdit ? "Leave blank to keep current password" : "Minimum 10 characters"}>
-              <input type="password" className={inputClass} value={form.password}
-                onChange={(e) => setField("password", e.target.value)}
-                placeholder={isEdit ? "Leave blank to keep unchanged" : "Enter password (min 10 chars)"}
-                minLength={isEdit ? undefined : 10} autoComplete="new-password" />
+             <Field label="Password" required={!isEdit} hint={isEdit ? "Leave blank to keep current password" : "Minimum 10 characters"}>
+              <div className="relative">
+                <input type={showPassword ? "text" : "password"} className={`${inputClass} pr-10`} value={form.password}
+                  onChange={(e) => setField("password", e.target.value)}
+                  placeholder={isEdit ? "Leave blank to keep unchanged" : "Enter password (min 10 chars)"}
+                  minLength={isEdit ? undefined : 10} autoComplete="new-password" />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-500 hover:text-slate-700 focus:outline-none"
+                >
+                  {showPassword ? <LuEyeOff size={18} /> : <LuEye size={18} />}
+                </button>
+              </div>
             </Field>
             <Field label="Confirm Password" required={!isEdit}>
-              <input type="password" className={inputClass} value={form.confirmPassword}
-                onChange={(e) => setField("confirmPassword", e.target.value)}
-                placeholder="Re-enter password" autoComplete="new-password" />
+              <div className="relative">
+                <input type={showConfirmPassword ? "text" : "password"} className={`${inputClass} pr-10`} value={form.confirmPassword}
+                  onChange={(e) => setField("confirmPassword", e.target.value)}
+                  placeholder="Re-enter password" autoComplete="new-password" />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-500 hover:text-slate-700 focus:outline-none"
+                >
+                  {showConfirmPassword ? <LuEyeOff size={18} /> : <LuEye size={18} />}
+                </button>
+              </div>
               {form.password && form.confirmPassword && form.password !== form.confirmPassword && (
                 <p className="mt-1 text-xs text-red-500">Passwords do not match</p>
               )}

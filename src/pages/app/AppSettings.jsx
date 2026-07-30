@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LuSettings, LuBuilding2, LuMail, LuPhone, LuGlobe, LuMapPin, LuCircleHelp, LuInstagram, LuTwitter, LuFacebook, LuYoutube, LuCircleCheck, LuCircleAlert, LuExternalLink } from "react-icons/lu";
+import { LuSettings, LuBuilding2, LuMail, LuPhone, LuGlobe, LuMapPin, LuCircleHelp, LuInstagram, LuTwitter, LuFacebook, LuYoutube, LuCircleCheck, LuCircleAlert, LuExternalLink, LuBot, LuKey, LuEye, LuEyeOff } from "react-icons/lu";
 import { useAuth } from "../../auth/AuthProvider";
 import { api } from "../../lib/api";
 import { toastFromError } from "../../lib/toast";
@@ -54,6 +54,8 @@ export function AppSettings() {
   const { token, user } = useAuth();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showClientId, setShowClientId] = useState(false);
+  const [showToken, setShowToken] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,6 +105,48 @@ export function AppSettings() {
               <InfoRow Icon={LuMapPin}    label="City"          value={profile?.city} />
               <InfoRow Icon={LuBuilding2} label="Status"        value={profile?.isActive ? "Active" : "Inactive"} />
               <InfoRow Icon={LuBuilding2} label="Total Candidates" value={String(profile?.totalCandidates ?? "—")} />
+              {profile?.ragClientId && (
+                <div className="flex items-start gap-3 py-3 border-b border-slate-50 last:border-0">
+                  <LuBot className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" strokeWidth={1.75} />
+                  <div className="min-w-0 flex-1 flex justify-between items-center gap-2">
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">RAG Client ID</div>
+                      <div className="mt-0.5 text-sm text-slate-900 break-words font-mono">
+                        {showClientId ? profile.ragClientId : "••••••••••••••••"}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowClientId(!showClientId)}
+                      className="text-slate-400 hover:text-slate-600 transition cursor-pointer p-1 rounded-md hover:bg-slate-50"
+                      title={showClientId ? "Hide Client ID" : "Show Client ID"}
+                    >
+                      {showClientId ? <LuEyeOff className="h-4 w-4" /> : <LuEye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {profile?.ragToken && (
+                <div className="flex items-start gap-3 py-3 border-b border-slate-50 last:border-0">
+                  <LuKey className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" strokeWidth={1.75} />
+                  <div className="min-w-0 flex-1 flex justify-between items-center gap-2">
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">RAG Integration Token</div>
+                      <div className="mt-0.5 text-sm text-slate-900 break-all font-mono">
+                        {showToken ? profile.ragToken : "••••••••••••••••••••••••••••••••••••••••"}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowToken(!showToken)}
+                      className="text-slate-400 hover:text-slate-600 transition cursor-pointer p-1 rounded-md hover:bg-slate-50"
+                      title={showToken ? "Hide Token" : "Show Token"}
+                    >
+                      {showToken ? <LuEyeOff className="h-4 w-4" /> : <LuEye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

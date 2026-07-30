@@ -2,9 +2,25 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../auth/AuthProvider";
 import { api, apiForm, mediaUrl } from "../../lib/api";
 import { toastFromError, toastSuccess } from "../../lib/toast";
-import { LuPlus, LuPencil, LuTrash2, LuEye, LuX, LuCheck, LuMegaphone, LuClock, LuCircleHelp, LuUsers, LuImage, LuSearch } from "react-icons/lu";
+import { LuPlus, LuPencil, LuTrash2, LuEye, LuX, LuCheck, LuMegaphone, LuClock, LuCircleHelp, LuUsers, LuImage, LuSearch, LuSparkles } from "react-icons/lu";
 
-
+const formatTimeTo12Hour = (timeStr) => {
+  if (!timeStr) return "";
+  if (/am|pm/i.test(timeStr)) return timeStr;
+  
+  try {
+    const parts = timeStr.split(":");
+    let hr = Number(parts[0]);
+    const min = parts[1] || "00";
+    if (isNaN(hr)) return timeStr;
+    
+    const ampm = hr >= 12 ? "PM" : "AM";
+    hr = hr % 12 || 12;
+    return `${String(hr).padStart(2, '0')}:${min} ${ampm}`;
+  } catch (e) {
+    return timeStr;
+  }
+};
 
 export function AppScriptsApproval() {
   const { token } = useAuth();
@@ -12,6 +28,7 @@ export function AppScriptsApproval() {
   const [creators, setCreators] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewScript, setViewScript] = useState(null);
+  const [activeSubTab, setActiveSubTab] = useState("All");
   
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
@@ -20,6 +37,7 @@ export function AppScriptsApproval() {
   const [saving, setSaving] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
   const [reviewSubmission, setReviewSubmission] = useState(null);
+  const [scriptModalOpen, setScriptModalOpen] = useState(false);
 
   // Assign Modal State
   const [assignScript, setAssignScript] = useState(null);
@@ -31,6 +49,7 @@ export function AppScriptsApproval() {
   const [description, setDescription] = useState("");
   const [dynamicCategories, setDynamicCategories] = useState([]);
   const [category, setCategory] = useState("");
+  const [approvalSendMode, setApprovalSendMode] = useState("auto");
 
   useEffect(() => {
     api("/api/categories?section=ugc_prompter", { token })
@@ -95,6 +114,7 @@ export function AppScriptsApproval() {
   }, [token]);
 
   useEffect(() => {
+    setActiveSubTab("All");
     setSelectedSubId(null);
   }, [viewScript]);
 
@@ -250,13 +270,15 @@ export function AppScriptsApproval() {
     }
   }
 
-  async function updateStatus(scriptId, status) {
+  async function updateStatus(scriptId, status, sendMode = null) {
     setUpdatingId(scriptId);
     try {
+      const payload = { status };
+      if (sendMode) payload.sendMode = sendMode;
       await api(`/api/app/scripts/${scriptId}/status`, {
         method: "PUT",
         token,
-        body: { status }
+        body: payload
       });
       toastSuccess(`Script status updated to ${status}`);
       if (viewScript && viewScript.scriptId === scriptId) {
@@ -320,22 +342,7 @@ export function AppScriptsApproval() {
   // --- Filtering & Sorting ---
   let filteredScripts = [...scripts];
 
-  // 1. Tab Filtering
-  if (activeTab === "Pending") {
-    filteredScripts = filteredScripts.filter(s => s.approvalStatus === "Pending" || s.approvalStatus === "Waiting" || s.approvalStatus === "Draft");
-  } else if (activeTab === "Submitted") {
-    filteredScripts = filteredScripts.filter(s => s.approvalStatus === "Submitted");
-  } else if (activeTab === "Editing") {
-    filteredScripts = filteredScripts.filter(s => s.approvalStatus === "Editing");
-  } else if (activeTab === "Edited") {
-    filteredScripts = filteredScripts.filter(s => s.approvalStatus === "Edited");
-  } else if (activeTab === "Approved") {
-    filteredScripts = filteredScripts.filter(s => s.approvalStatus === "Approved");
-  } else if (activeTab === "Objection") {
-    filteredScripts = filteredScripts.filter(s => s.approvalStatus === "Objection");
-  } else if (activeTab === "Rejected") {
-    filteredScripts = filteredScripts.filter(s => s.approvalStatus === "Rejected");
-  }
+  // 1. Tab Filtering (Removed from main dashboard to list all scripts directly)
 
   // 2. Search Query Filtering
   if (searchQuery.trim()) {
@@ -457,6 +464,527 @@ export function AppScriptsApproval() {
     );
   };
 
+  if (viewScript) {
+    const activeSub = viewScript.submissions?.find(sub => sub.scriptId === selectedSubId) || null;
+    const activeCreator = activeSub?.assignedCreators?.[0];
+    const activeCreatorMeta = activeCreator ? creators.find(cr => cr.creatorId === activeCreator.creatorId) : null;
+    const activeSendMode = activeCreatorMeta?.sendMode || "auto";
+
+    return (
+      <div className="p-4 sm:p-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-100 pb-5">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setViewScript(null)}
+              className="flex items-center justify-center h-10 w-10 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition shadow-xs cursor-pointer mr-2"
+              title="Back to UGC Scripts"
+            >
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <div>
+              <div className="flex items-center gap-3">
+                <h2 className="text-xl font-bold text-slate-900 font-sans">{viewScript.title}</h2>
+                <button
+                  type="button"
+                  onClick={() => setScriptModalOpen(true)}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-indigo-650 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100/80 px-3 py-1.5 rounded-xl border border-indigo-150 transition cursor-pointer shadow-2xs shrink-0"
+                  title="View Script Content"
+                >
+                  <LuEye className="h-4 w-4" />
+                  <span>View Script</span>
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 mt-1">
+                <span className="text-xs text-slate-500 font-medium">UGC Prompter Script Workspace</span>
+                {viewScript.category && (
+                  <>
+                    <span className="text-[6px] text-slate-300">•</span>
+                    <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-100 uppercase tracking-wider">
+                      {viewScript.category}
+                    </span>
+                  </>
+                )}
+                {viewScript.duration && (
+                  <>
+                    <span className="text-[6px] text-slate-300">•</span>
+                    <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
+                      Duration: {viewScript.duration}
+                    </span>
+                  </>
+                )}
+                {viewScript.scheduledTime && (
+                  <>
+                    <span className="text-[6px] text-slate-300">•</span>
+                    <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
+                      {formatTimeTo12Hour(viewScript.scheduledTime)}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          <button
+            onClick={() => setViewScript(null)}
+            className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 px-4 py-2.5 text-sm font-semibold shadow transition-all cursor-pointer font-sans"
+          >
+            Back to Scripts
+          </button>
+        </div>
+
+        {/* Split Body */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+          {/* Workspace Panels (col-span-12) */}
+          <div className="lg:col-span-12 space-y-6">
+            
+            {/* Creators list card - only shown when no creator is selected */}
+            {!activeSub ? (
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Creator Assignments &amp; Preferences</h3>
+              </div>
+
+              {/* Status filter tabs for Creator list */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-150">
+                {["All", "Pending", "Submitted", "Editing", "Edited", "Approved", "Objection", "Rejected"].map(tab => {
+                  const count = viewScript.submissions?.filter(sub => {
+                    if (tab === "All") return true;
+                    if (tab === "Pending") return sub.approvalStatus === "Pending" || sub.approvalStatus === "Waiting" || sub.approvalStatus === "Draft";
+                    return sub.approvalStatus === tab;
+                  }).length || 0;
+                  const isActive = activeSubTab === tab;
+                  return (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => {
+                        setActiveSubTab(tab);
+                        setSelectedSubId(null); // Reset selection when tab changes
+                      }}
+                      className={`flex items-center justify-center gap-1.5 rounded-xl px-3 py-1.5 text-[10px] font-bold transition shadow-xs border cursor-pointer w-full ${
+                        isActive
+                          ? "bg-gradient-to-r from-orange-500 to-amber-600 border-orange-600 text-white"
+                          : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span>{tab}</span>
+                      <span className={`inline-flex items-center justify-center rounded-full h-4 w-4 text-[9px] font-extrabold ${
+                        isActive ? "bg-white text-orange-600" : "bg-slate-100 text-slate-655"
+                      }`}>
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* List of Creators */}
+              {(() => {
+                const filteredSubs = viewScript.submissions?.filter(sub => {
+                  if (activeSubTab === "All") return true;
+                  if (activeSubTab === "Pending") return sub.approvalStatus === "Pending" || sub.approvalStatus === "Waiting" || sub.approvalStatus === "Draft";
+                  return sub.approvalStatus === activeSubTab;
+                }) || [];
+
+                if (filteredSubs.length > 0) {
+                  return (
+                    <div className="flex flex-col gap-2 max-h-60 overflow-y-auto no-scrollbar">
+                      {filteredSubs.map(sub => {
+                        const creator = sub.assignedCreators?.[0];
+                        if (!creator) return null;
+                        const isSelected = selectedSubId === sub.scriptId;
+                        const status = sub.approvalStatus;
+
+                        // Find creator preference
+                        const creatorMeta = creators.find(cr => cr.creatorId === creator.creatorId);
+                        const currentSendMode = creatorMeta?.sendMode || "auto";
+                        const currentAdminReviewMode = creatorMeta?.adminReviewMode || "manual";
+
+                        return (
+                          <div
+                            key={sub.scriptId}
+                            className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border transition shadow-2xs ${
+                              isSelected
+                                ? "bg-indigo-50 border-indigo-200"
+                                : "bg-white border-slate-100 hover:bg-slate-50/60"
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedSubId(isSelected ? null : sub.scriptId);
+                              }}
+                              className="flex-1 flex flex-col text-left cursor-pointer"
+                            >
+                              <span className="text-xs font-bold text-slate-800">{creator.name}</span>
+                              <span className="text-[9px] font-extrabold uppercase tracking-wide mt-0.5 inline-flex items-center gap-1 text-slate-400">
+                                {creator.role} • 
+                                <span className={`px-1.5 py-0.2 rounded-full font-bold ${
+                                  status === "Approved" ? "bg-green-100 text-green-700" :
+                                  status === "Rejected" ? "bg-red-100 text-red-700" :
+                                  status === "Submitted" ? "bg-blue-100 text-blue-700" :
+                                  status === "Editing" ? "bg-purple-100 text-purple-700 animate-pulse" :
+                                  status === "Edited" ? "bg-teal-100 text-teal-700" :
+                                  "bg-amber-100 text-amber-700"
+                                }`}>
+                                  {status === "Editing" ? `Editing (${sub.processingProgress || 0}%)` : status}
+                                </span>
+                              </span>
+                            </button>
+
+                            <div className="flex items-center gap-3 shrink-0">
+                              {/* Admin Review / Verify Toggle Switch */}
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">Verify:</span>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const newMode = currentAdminReviewMode === "auto" ? "manual" : "auto";
+                                    try {
+                                      await api(`/api/app/creators/${creator.creatorId}/admin-review-mode`, {
+                                        method: "PUT",
+                                        token,
+                                        body: { adminReviewMode: newMode }
+                                      });
+                                      toastSuccess(`Updated ${creator.name} verification to ${newMode === "auto" ? "Auto" : "Manual"}`);
+                                      loadData();
+                                    } catch (err) {
+                                      toastFromError(err, "Failed to update verification mode");
+                                    }
+                                  }}
+                                  className={`relative inline-flex h-5 w-14 items-center rounded-full transition-colors duration-200 cursor-pointer ${
+                                    currentAdminReviewMode === "auto" ? "bg-indigo-500" : "bg-slate-300"
+                                  }`}
+                                >
+                                  <span className="absolute left-1.5 text-[8px] font-black text-white select-none pointer-events-none uppercase">
+                                    {currentAdminReviewMode === "auto" ? "Auto" : ""}
+                                  </span>
+                                  <span className="absolute right-1.5 text-[8px] font-black text-slate-600 select-none pointer-events-none uppercase">
+                                    {currentAdminReviewMode === "manual" ? "Man" : ""}
+                                  </span>
+                                  <span
+                                    className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200 ${
+                                      currentAdminReviewMode === "auto" ? "translate-x-9" : "translate-x-1"
+                                    }`}
+                                  />
+                                </button>
+                              </div>
+
+                              {/* Processing Toggle Switch */}
+                              <div className="flex items-center gap-1.5 border-l border-slate-100 pl-3">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">Processing:</span>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const newMode = currentSendMode === "auto" ? "manual" : "auto";
+                                    try {
+                                      await api(`/api/app/creators/${creator.creatorId}/send-mode`, {
+                                        method: "PUT",
+                                        token,
+                                        body: { sendMode: newMode }
+                                      });
+                                      toastSuccess(`Updated ${creator.name} processing to ${newMode === "auto" ? "Auto AI" : "Manual Review"}`);
+                                      loadData();
+                                    } catch (err) {
+                                      toastFromError(err, "Failed to update processing mode");
+                                    }
+                                  }}
+                                  className={`relative inline-flex h-5 w-14 items-center rounded-full transition-colors duration-200 cursor-pointer ${
+                                    currentSendMode === "auto" ? "bg-green-500" : "bg-slate-300"
+                                  }`}
+                                >
+                                  <span className="absolute left-1.5 text-[8px] font-black text-white select-none pointer-events-none uppercase">
+                                    {currentSendMode === "auto" ? "Auto" : ""}
+                                  </span>
+                                  <span className="absolute right-1.5 text-[8px] font-black text-slate-600 select-none pointer-events-none uppercase">
+                                    {currentSendMode === "manual" ? "Man" : ""}
+                                  </span>
+                                  <span
+                                    className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200 ${
+                                      currentSendMode === "auto" ? "translate-x-9" : "translate-x-1"
+                                    }`}
+                                  />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                }
+                return (
+                  <div className="text-xs text-slate-400 italic py-6 text-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                    No creators assigned to this status tab.
+                  </div>
+                );
+              })()}
+            </div>
+          ) : (
+            /* Submission specific video details card - shown when a creator is selected */
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-5">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                  Review &amp; Status Controls
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSubId(null)}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl border border-slate-200 transition cursor-pointer"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                  </svg>
+                  <span>Back to Creators</span>
+                </button>
+              </div>
+                
+                {renderWorkflowProgress(activeSub)}
+
+                {/* Progress bar is shown in the center of the Edited Videos card below */}
+
+                {activeSub.objectionNote && (
+                  <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 text-xs text-orange-850">
+                    <span className="font-bold uppercase tracking-wider block mb-1">Objection Reason:</span>
+                    {activeSub.objectionNote}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Raw Video */}
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-2">
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Raw Video (Creator Upload)
+                    </span>
+                    {activeSub.rawVideoUrl ? (
+                      <div className="rounded-lg overflow-hidden bg-black aspect-video">
+                        <video src={mediaUrl(activeSub.rawVideoUrl)} controls className="w-full h-full object-contain" />
+                      </div>
+                    ) : (
+                      <div className="text-xs text-slate-400 italic py-6 text-center">
+                        No raw video uploaded yet by this creator.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Edited Videos */}
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-2">
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Edited Videos (AI Generated)
+                    </span>
+                    {(activeSub.processedVideoUrl || activeSub.viralVideoUrl) ? (
+                      <div className="space-y-3">
+                        {activeSub.processedVideoUrl && (
+                          <div>
+                            <span className="block text-[8px] font-bold uppercase text-slate-500 mb-0.5">AI Processed Video</span>
+                            <div className="rounded-lg overflow-hidden bg-black aspect-video">
+                              <video src={mediaUrl(activeSub.processedVideoUrl)} controls className="w-full h-full object-contain" />
+                            </div>
+                          </div>
+                        )}
+                        {activeSub.viralVideoUrl && (
+                          <div>
+                            <span className="block text-[8px] font-bold uppercase text-slate-500 mb-0.5">AI Viral-Optimized Video</span>
+                            <div className="rounded-lg overflow-hidden bg-black aspect-video">
+                              <video src={mediaUrl(activeSub.viralVideoUrl)} controls className="w-full h-full object-contain" />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : activeSub.approvalStatus === "Editing" ? (
+                      <div className="flex flex-col items-center justify-center py-16 px-4 space-y-4 text-center bg-slate-50/50 rounded-xl border border-slate-100 min-h-[250px]">
+                        <div className="flex items-center gap-2 text-purple-700 text-xs font-bold animate-pulse">
+                          <div className="w-4 h-4 border-2 border-purple-700 border-t-transparent rounded-full animate-spin"></div>
+                          <span>AI Editing in progress ({activeSub.processingProgress || 0}%)...</span>
+                        </div>
+                        <div className="w-full max-w-[240px] bg-purple-100 rounded-full h-1.5 overflow-hidden border border-purple-200">
+                          <div 
+                            className="bg-purple-600 h-full rounded-full transition-all duration-500" 
+                            style={{ width: `${activeSub.processingProgress || 0}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-slate-500 leading-relaxed max-w-[200px] font-medium">
+                          Please wait while the AI editing engine processes the video.
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-slate-400 italic py-6 text-center">
+                        No edited video generated by AI yet.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* AI Edit Request Panel for Submitted raw videos */}
+                {["Pending", "Submitted", "Waiting", "Draft", "Objection"].includes(activeSub.approvalStatus) && activeSub.rawVideoUrl && (
+                  <div className="space-y-4">
+                    {/* Failure details if previous processing failed */}
+                    {activeSub.processingStatus === "failed" && (
+                      <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex flex-col gap-2">
+                        <span className="block text-xs font-bold text-red-900">⚠️ Previous AI Video Editing Attempt Failed</span>
+                        {activeSub.objectionNote && (
+                          <div className="text-[11px] text-red-800 bg-white/80 p-2.5 rounded-lg border border-red-100 whitespace-pre-wrap font-sans">
+                            <strong>Reason for failure:</strong> {activeSub.objectionNote}
+                          </div>
+                        )}
+                        <span className="block text-[10px] text-red-600 font-medium">
+                          You can click the retry button below to send the video back to the AI server.
+                        </span>
+                      </div>
+                    )}
+
+                    <div className={`${activeSub.processingStatus === "failed" ? "bg-amber-50/50 border-amber-100" : "bg-indigo-50/50 border-indigo-100"} p-4 rounded-xl border flex items-center justify-between gap-4`}>
+                      <div>
+                        <span className={`block text-xs font-bold ${activeSub.processingStatus === "failed" ? "text-amber-900" : "text-indigo-900"}`}>
+                          {activeSub.processingStatus === "failed" ? "Retry AI Video Editing" : "Trigger AI Video Editing"}
+                        </span>
+                        <span className={`block text-[10px] ${activeSub.processingStatus === "failed" ? "text-amber-650" : "text-indigo-650"} mt-0.5 font-medium`}>
+                          The video will be processed using the creator's saved preference ({activeSendMode === "manual" ? "Manual Review" : "Auto AI"}).
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={updatingId === activeSub.scriptId}
+                        onClick={() => { updateStatus(activeSub.scriptId, "Editing", activeSendMode); }}
+                        className={`flex items-center gap-1.5 rounded-lg ${activeSub.processingStatus === "failed" ? "bg-amber-600 hover:bg-amber-700" : "bg-indigo-600 hover:bg-indigo-700"} px-5 py-2 text-xs font-bold text-white transition shadow cursor-pointer shrink-0`}
+                      >
+                        <LuSparkles className="h-3.5 w-3.5" /> {activeSub.processingStatus === "failed" ? "Retry AI Edit" : "Start AI Edit"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Approval Panel */}
+                {activeSub.approvalStatus === "Edited" && (
+                  <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold text-indigo-900">Approve this submission?</span>
+                    <div className="flex gap-2">
+                      <button
+                        disabled={updatingId === activeSub.scriptId}
+                        onClick={() => { updateStatus(activeSub.scriptId, "Approved"); }}
+                        className="flex items-center gap-1.5 rounded-lg bg-green-600 hover:bg-green-700 px-3 py-1.5 text-xs font-bold text-white transition shadow cursor-pointer"
+                      >
+                        <LuCheck className="h-3.5 w-3.5" /> Approve
+                      </button>
+                      <button
+                        disabled={updatingId === activeSub.scriptId}
+                        onClick={() => { setObjectionScript(activeSub); }}
+                        className="flex items-center gap-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 px-3 py-1.5 text-xs font-bold text-white transition shadow cursor-pointer"
+                      >
+                        <LuCircleHelp className="h-3.5 w-3.5" /> Objection
+                      </button>
+                      <button
+                        disabled={updatingId === activeSub.scriptId}
+                        onClick={() => { updateStatus(activeSub.scriptId, "Rejected"); }}
+                        className="flex items-center gap-1.5 rounded-lg bg-red-600 hover:bg-red-700 px-3 py-1.5 text-xs font-bold text-white transition shadow cursor-pointer"
+                      >
+                        <LuX className="h-3.5 w-3.5" /> Reject
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Script Details Modal */}
+        {scriptModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <button
+              type="button"
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs cursor-default"
+              onClick={() => setScriptModalOpen(false)}
+            />
+            {/* Modal Box */}
+            <div className="relative z-10 w-full max-w-2xl bg-white rounded-2xl shadow-xl border border-slate-200 flex flex-col max-h-[85vh] overflow-hidden animate-in fade-in zoom-in duration-200">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b border-slate-100 p-5 shrink-0">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">{viewScript.title}</h3>
+                  <div className="flex items-center gap-2 mt-1">
+                    {viewScript.category && (
+                      <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-100 uppercase tracking-wider">
+                        {viewScript.category}
+                      </span>
+                    )}
+                    {viewScript.duration && (
+                      <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
+                        Duration: {viewScript.duration}
+                      </span>
+                    )}
+                    {viewScript.scheduledTime && (
+                      <>
+                        <span className="text-[6px] text-slate-300">•</span>
+                        <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
+                          {formatTimeTo12Hour(viewScript.scheduledTime)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setScriptModalOpen(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition cursor-pointer"
+                >
+                  <LuX className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-6 overflow-y-auto space-y-5 flex-1 pr-4 no-scrollbar">
+                {viewScript.imageUrl && (
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Reference Image</label>
+                    <div className="max-w-xs overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                      <img
+                        src={mediaUrl(viewScript.imageUrl)}
+                        alt="Reference"
+                        className="w-full h-auto object-cover max-h-48"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {viewScript.description && (
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Context / Description</label>
+                    <div className="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 text-xs leading-relaxed text-slate-700 whitespace-pre-wrap font-sans">
+                      {viewScript.description}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">Script Content</label>
+                  <div className="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-4 text-[13px] leading-relaxed text-slate-800 whitespace-pre-wrap font-sans select-text">
+                    {viewScript.body}
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="border-t border-slate-100 p-4 flex justify-end shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setScriptModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold rounded-xl transition cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="p-4 sm:p-6 space-y-6">
       {/* Header */}
@@ -479,39 +1007,7 @@ export function AppScriptsApproval() {
         </button>
       </div>
 
-      {/* Tabs list (Matches Reference Design) */}
-      <div className="flex flex-wrap gap-2.5 items-center">
-        {[
-          { label: "All", count: countAll },
-          { label: "Pending", count: countPending },
-          { label: "Submitted", count: countSubmitted },
-          { label: "Editing", count: countEditing },
-          { label: "Edited", count: countEdited },
-          { label: "Approved", count: countApproved },
-          { label: "Objection", count: countObjection },
-          { label: "Rejected", count: countRejected }
-        ].map(t => {
-          const isActive = activeTab === t.label;
-          return (
-            <button
-              key={t.label}
-              onClick={() => setActiveTab(t.label)}
-              className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-bold transition shadow-xs border ${
-                isActive
-                  ? "bg-gradient-to-r from-orange-500 to-amber-600 border-orange-600 text-white"
-                  : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
-              }`}
-            >
-              <span>{t.label}</span>
-              <span className={`inline-flex items-center justify-center rounded-full h-5 w-5 text-[10px] font-extrabold ${
-                isActive ? "bg-white text-orange-600" : "bg-slate-100 text-slate-600"
-              }`}>
-                {t.count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+
 
       {/* Search & Filter Container (Matches Reference Design) */}
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -626,7 +1122,11 @@ export function AppScriptsApproval() {
                   });
 
                   return (
-                    <tr key={group.title} className="hover:bg-slate-50/60 transition-colors">
+                    <tr
+                      key={group.title}
+                      onClick={() => setViewScript(group)}
+                      className="hover:bg-slate-50/60 transition-colors cursor-pointer"
+                    >
                       <td className="px-4 py-4 font-semibold text-slate-900">
                         <div className="flex items-center gap-3">
                           {group.imageUrl ? (
@@ -671,7 +1171,7 @@ export function AppScriptsApproval() {
                       <td className="px-4 py-4">
                         <div className="flex items-center gap-1.5 text-xs text-slate-500">
                           <LuClock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                          {group.scheduledTime}
+                          {formatTimeTo12Hour(group.scheduledTime)}
                         </div>
                       </td>
                       <td className="px-4 py-4">
@@ -707,29 +1207,39 @@ export function AppScriptsApproval() {
                       <td className="px-4 py-4 text-right">
                         <div className="inline-flex gap-2">
                           <button
-                            onClick={() => setViewScript(group)}
+                            onClick={(e) => { e.stopPropagation(); setViewScript(group); }}
                             className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 transition-colors"
                             title="View Script"
                           >
                             <LuEye className="h-4 w-4" />
                           </button>
                           
-                          <button
-                            onClick={() => openEdit(group.submissions[0])}
-                            className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 transition-colors"
-                            title="Edit Script"
-                          >
-                            <LuPencil className="h-4 w-4" />
-                          </button>
-
-                          <button
-                            onClick={() => onDeleteGroup(group)}
-                            className="rounded-lg border border-slate-200 p-1.5 text-red-500 hover:bg-red-50 transition-colors"
-                            title="Delete Script"
-                          >
-                            <LuTrash2 className="h-4 w-4" />
-                          </button>
-
+                          {/* Edit & Delete: only when NO action taken on any submission */}
+                          {(() => {
+                            const actionTakenStatuses = ["Submitted", "Editing", "Edited", "Approved", "Rejected", "Objection"];
+                            const hasAction = group.submissions.some(sub => actionTakenStatuses.includes(sub.approvalStatus));
+                            if (hasAction) return null;
+                            return (
+                              <>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); openEdit(group.submissions[0]); }}
+                                  className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 transition-colors"
+                                  title="Edit Script"
+                                >
+                                  <LuPencil className="h-4 w-4" />
+                                </button>
+ 
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); onDeleteGroup(group); }}
+                                  className="rounded-lg border border-slate-200 p-1.5 text-red-500 hover:bg-red-50 transition-colors"
+                                  title="Delete Script"
+                                >
+                                  <LuTrash2 className="h-4 w-4" />
+                                </button>
+                              </>
+                            );
+                          })()}
+ 
                           {!group.submissions[0].createdByAdmin ? (
                             <span className="inline-flex items-center rounded-lg bg-orange-50 border border-orange-200 px-2.5 py-1.5 text-xs font-bold text-orange-700 whitespace-nowrap">
                               Private
@@ -737,7 +1247,7 @@ export function AppScriptsApproval() {
                           ) : (
                             creators.length > 0 && (
                               <button
-                                onClick={() => openAssign(group.submissions[0])}
+                                onClick={(e) => { e.stopPropagation(); openAssign(group.submissions[0]); }}
                                 className="flex items-center gap-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 px-2 py-1.5 text-xs font-bold text-indigo-700 transition"
                                 title="Assign to Creator"
                               >
@@ -755,255 +1265,6 @@ export function AppScriptsApproval() {
           </div>
         )}
       </div>
-
-      {/* View Script Modal */}
-      {viewScript && (() => {
-        const activeSub = viewScript.submissions?.find(sub => sub.scriptId === selectedSubId) || null;
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <button type="button" className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setViewScript(null)} />
-            <div className="relative z-10 w-full max-w-5xl rounded-2xl bg-white p-6 shadow-xl border border-slate-200 flex flex-col max-h-[90vh]">
-              
-              {/* Header */}
-              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 shrink-0">
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">UGC Prompter Script Workspace</h3>
-                  <p className="text-xs text-slate-400">
-                    {viewScript.submissions?.length > 0 ? `${viewScript.submissions.length} Creator Assignment(s)` : "Unassigned Script Template"}
-                  </p>
-                </div>
-                <button type="button" onClick={() => setViewScript(null)} className="text-slate-400 hover:text-slate-600">
-                  <LuX className="h-5 w-5" />
-                </button>
-              </div>
-              
-              {/* Split Body */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-hidden flex-1 min-h-0">
-                
-                {/* Left Column: Script details (col-span-5) */}
-                <div className="lg:col-span-5 overflow-y-auto pr-2 space-y-4 border-r border-slate-100">
-                  <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-xl text-xs border border-slate-100">
-                    <div>
-                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Script Title</span>
-                      <span className="font-bold text-slate-800">{viewScript.title}</span>
-                    </div>
-                    <div>
-                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Category</span>
-                      <span className="font-semibold text-slate-800">{viewScript.category}</span>
-                    </div>
-                    <div>
-                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Duration</span>
-                      <span className="font-mono text-slate-800">{viewScript.duration}</span>
-                    </div>
-                    <div>
-                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Scheduled Time</span>
-                      <span className="font-semibold text-slate-800">{viewScript.scheduledTime}</span>
-                    </div>
-                  </div>
-
-                  {viewScript.imageUrl && (
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Reference Image</label>
-                      <div className="max-w-xs overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                        <img
-                          src={mediaUrl(viewScript.imageUrl)}
-                          alt="Reference"
-                          className="w-full h-auto object-cover max-h-40"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {viewScript.description && (
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Context / Description</label>
-                      <div className="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-2.5 text-xs leading-relaxed text-slate-700 whitespace-pre-wrap font-sans">
-                        {viewScript.description}
-                      </div>
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Script Content</label>
-                    <div className="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 text-xs leading-relaxed text-slate-850 whitespace-pre-wrap font-sans">
-                      {viewScript.body}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right Column: Submission & Video Review workspace (col-span-7) */}
-                <div className="lg:col-span-7 overflow-y-auto pl-2 flex flex-col min-h-0">
-                  
-                  {/* Creator selector */}
-                  <div className="mb-4">
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                      Creator Assignments
-                    </label>
-                    {viewScript.submissions && viewScript.submissions.length > 0 && viewScript.submissions.some(sub => sub.assignedCreators && sub.assignedCreators.length > 0) ? (
-                      <div className="flex flex-wrap gap-2">
-                        {viewScript.submissions.map(sub => {
-                          const creator = sub.assignedCreators?.[0];
-                          if (!creator) return null;
-                          const isSelected = selectedSubId === sub.scriptId;
-                          return (
-                            <button
-                              key={sub.scriptId}
-                              type="button"
-                              onClick={() => setSelectedSubId(isSelected ? null : sub.scriptId)}
-                              className={`flex flex-col text-left px-3 py-1.5 rounded-xl border transition shadow-xs cursor-pointer ${
-                                isSelected
-                                  ? "bg-indigo-50 border-indigo-300 text-indigo-900"
-                                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                              }`}
-                            >
-                              <span className="text-xs font-bold">{creator.name}</span>
-                              <span className="text-[9px] font-extrabold uppercase tracking-wide mt-0.5 inline-flex items-center gap-1 text-slate-400">
-                                {creator.role} • 
-                                <span className={`px-1.5 py-0.2 rounded-full font-bold ${
-                                  sub.approvalStatus === "Approved" ? "bg-green-100 text-green-700" :
-                                  sub.approvalStatus === "Rejected" ? "bg-red-100 text-red-700" :
-                                  sub.approvalStatus === "Submitted" ? "bg-blue-100 text-blue-700" :
-                                  sub.approvalStatus === "Editing" ? "bg-purple-100 text-purple-700" :
-                                  sub.approvalStatus === "Edited" ? "bg-teal-100 text-teal-700" :
-                                  "bg-amber-100 text-amber-700"
-                                }`}>
-                                  {sub.approvalStatus}
-                                </span>
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="text-xs text-slate-400 italic py-2">
-                        No creators assigned to this script template yet.
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Submission Specific Content Panel */}
-                  <div className="flex-1 min-h-0">
-                    {activeSub ? (
-                      <div className="space-y-4">
-                        {renderWorkflowProgress(activeSub)}
-
-                        {activeSub.objectionNote && (
-                          <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 text-xs text-orange-850">
-                            <span className="font-bold uppercase tracking-wider block mb-1">Objection Reason:</span>
-                            {activeSub.objectionNote}
-                          </div>
-                        )}
-
-                        {/* Video section */}
-                        <div className="grid grid-cols-1 gap-4">
-                          {/* Raw Video Box */}
-                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                              Raw Video (Creator Upload)
-                            </label>
-                            {activeSub.rawVideoUrl ? (
-                              <div className="rounded-lg overflow-hidden bg-black aspect-video max-w-sm mx-auto">
-                                <video src={mediaUrl(activeSub.rawVideoUrl)} controls className="w-full h-full object-contain" />
-                              </div>
-                            ) : (
-                              <div className="text-xs text-slate-400 italic py-4 text-center">
-                                No raw video uploaded yet by this creator.
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Edited Video Box */}
-                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                              Edited Videos (AI Generated)
-                            </label>
-                            {(activeSub.processedVideoUrl || activeSub.viralVideoUrl) ? (
-                              <div className="grid grid-cols-1 gap-4">
-                                {activeSub.processedVideoUrl && (
-                                  <div>
-                                    <span className="block text-[9px] font-bold uppercase text-slate-400 mb-1">AI Processed Video</span>
-                                    <div className="rounded-lg overflow-hidden bg-black aspect-video max-w-sm mx-auto">
-                                      <video src={mediaUrl(activeSub.processedVideoUrl)} controls className="w-full h-full object-contain" />
-                                    </div>
-                                  </div>
-                                )}
-                                {activeSub.viralVideoUrl && (
-                                  <div>
-                                    <span className="block text-[9px] font-bold uppercase text-slate-400 mb-1">AI Viral-Optimized Video</span>
-                                    <div className="rounded-lg overflow-hidden bg-black aspect-video max-w-sm mx-auto">
-                                      <video src={mediaUrl(activeSub.viralVideoUrl)} controls className="w-full h-full object-contain" />
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="text-xs text-slate-400 italic py-4 text-center">
-                                No edited video generated by AI yet.
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Approval Panel */}
-                        {activeSub.approvalStatus === "Edited" && (
-                          <div className="bg-indigo-50/50 p-3.5 rounded-xl border border-indigo-100 flex items-center justify-between gap-3 mt-4 shrink-0">
-                            <span className="text-xs font-semibold text-indigo-900">Approve this submission?</span>
-                            <div className="flex gap-2">
-                              <button
-                                disabled={updatingId === activeSub.scriptId}
-                                onClick={() => { updateStatus(activeSub.scriptId, "Approved"); setViewScript(null); }}
-                                className="flex items-center gap-1.5 rounded-lg bg-green-600 hover:bg-green-700 px-3 py-1.5 text-xs font-bold text-white transition shadow cursor-pointer"
-                              >
-                                <LuCheck className="h-3.5 w-3.5" /> Approve
-                              </button>
-                              <button
-                                disabled={updatingId === activeSub.scriptId}
-                                onClick={() => { setObjectionScript(activeSub); setViewScript(null); }}
-                                className="flex items-center gap-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 px-3 py-1.5 text-xs font-bold text-white transition shadow cursor-pointer"
-                              >
-                                <LuCircleHelp className="h-3.5 w-3.5" /> Objection
-                              </button>
-                              <button
-                                disabled={updatingId === activeSub.scriptId}
-                                onClick={() => { updateStatus(activeSub.scriptId, "Rejected"); setViewScript(null); }}
-                                className="flex items-center gap-1.5 rounded-lg bg-red-600 hover:bg-red-700 px-3 py-1.5 text-xs font-bold text-white transition shadow cursor-pointer"
-                              >
-                                <LuX className="h-3.5 w-3.5" /> Reject
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center h-full text-slate-400 py-12 text-center border-2 border-dashed border-slate-100 rounded-2xl">
-                        <LuUsers className="h-8 w-8 text-slate-300 mb-2 animate-bounce" />
-                        <p className="text-xs font-semibold max-w-[280px]">
-                          Select a creator assignment button above to review their submission and videos.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                </div>
-                
-              </div>
-
-              {/* Close Button Footer */}
-              <div className="flex justify-end items-center pt-3 border-t border-slate-100 mt-4 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setViewScript(null)}
-                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
-                >
-                  Close
-                </button>
-              </div>
-
-            </div>
-          </div>
-        );
-      })()}
 
       {/* Create / Edit Modal */}
       {modalOpen && (

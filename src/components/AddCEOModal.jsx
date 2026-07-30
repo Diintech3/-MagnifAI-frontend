@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Modal } from "./Modal";
 import { apiForm } from "../lib/api";
 import { toastFromError, toastSuccess } from "../lib/toast";
+import { LuEye, LuEyeOff } from "react-icons/lu";
 
 const inputClass =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20";
@@ -38,6 +39,8 @@ export function AddCEOModal({ open, onClose, onSaved, token, editCEO }) {
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const isEdit = Boolean(editCEO);
 
@@ -170,18 +173,36 @@ export function AddCEOModal({ open, onClose, onSaved, token, editCEO }) {
 
         <Section title="Login Credentials">
           <Field label="Password" required={!isEdit}>
-            <input type="password" className={inputClass} value={form.password}
-              onChange={e => setField("password", e.target.value)}
-              placeholder={isEdit ? "Leave blank to keep current password" : "Min 10 characters"}
-              required={!isEdit} minLength={isEdit ? undefined : 10} />
+            <div className="relative">
+              <input type={showPassword ? "text" : "password"} className={`${inputClass} pr-10`} value={form.password}
+                onChange={e => setField("password", e.target.value)}
+                placeholder={isEdit ? "Leave blank to keep current password" : "Min 10 characters"}
+                required={!isEdit} minLength={isEdit ? undefined : 10} />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-500 hover:text-slate-700 focus:outline-none"
+              >
+                {showPassword ? <LuEyeOff size={18} /> : <LuEye size={18} />}
+              </button>
+            </div>
             {isEdit && editCEO?.hasPassword
               ? <p className="mt-1 text-xs text-emerald-600">Password is set. Leave blank to keep unchanged.</p>
               : null}
           </Field>
           <Field label="Confirm Password" required={!isEdit}>
-            <input type="password" className={inputClass} value={form.confirmPassword}
-              onChange={e => setField("confirmPassword", e.target.value)}
-              placeholder="Confirm password" required={!isEdit} minLength={isEdit ? undefined : 10} />
+            <div className="relative">
+              <input type={showConfirmPassword ? "text" : "password"} className={`${inputClass} pr-10`} value={form.confirmPassword}
+                onChange={e => setField("confirmPassword", e.target.value)}
+                placeholder="Confirm password" required={!isEdit} minLength={isEdit ? undefined : 10} />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-500 hover:text-slate-700 focus:outline-none"
+              >
+                {showConfirmPassword ? <LuEyeOff size={18} /> : <LuEye size={18} />}
+              </button>
+            </div>
           </Field>
         </Section>
 

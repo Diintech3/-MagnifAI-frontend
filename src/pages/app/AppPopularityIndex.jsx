@@ -1,29 +1,33 @@
-import { useEffect, useState } from "react";
-import { LuRefreshCw, LuTrendingUp, LuStar, LuGlobe, LuUsers } from "react-icons/lu";
+import { useEffect, useState, useCallback } from "react";
+import {
+  LuRefreshCw, LuTrendingUp, LuStar, LuGlobe, LuUsers,
+  LuInstagram, LuFacebook, LuYoutube, LuHeart, LuMessageCircle,
+  LuEye, LuLink, LuUnlink,
+  LuArrowLeft, LuExternalLink, LuTwitter
+} from "react-icons/lu";
 import { useAuth } from "../../auth/AuthProvider";
 import { api } from "../../lib/api";
-import { toastFromError } from "../../lib/toast";
+import { toastFromError, toastSuccess } from "../../lib/toast";
 
-function ScoreRing({ value, size = 120, label, color = "#6366f1" }) {
-  const r = size / 2 - 10;
-  const circ = 2 * Math.PI * r;
-  const offset = circ - (value / 100) * circ;
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#f1f5f9" strokeWidth="10" />
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="10"
-          strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
-          style={{ transition: "stroke-dashoffset 0.8s ease" }} />
-      </svg>
-      <div className="text-center -mt-[calc(var(--size)/2+10px)]" style={{ marginTop: -(size/2+10) }}>
-        <div className="text-2xl font-black text-slate-900">{value}</div>
-        <div className="text-[10px] font-semibold text-slate-500">/100</div>
-      </div>
-      {label && <div className="text-xs font-semibold text-slate-600 text-center">{label}</div>}
-    </div>
-  );
-}
+const PLATFORMS = [
+  { key: "instagram", label: "Instagram", Icon: LuInstagram, color: "bg-gradient-to-r from-purple-500 via-pink-500 to-yellow-500", textCol: "text-pink-600", light: "bg-pink-50 text-pink-700 border-pink-200" },
+  { key: "facebook",  label: "Facebook",  Icon: LuFacebook,  color: "bg-blue-600", textCol: "text-blue-600", light: "bg-blue-50 text-blue-700 border-blue-200" },
+  { key: "youtube",   label: "YouTube",   Icon: LuYoutube,   color: "bg-red-600", textCol: "text-red-600", light: "bg-red-50 text-red-700 border-red-200" },
+  { key: "twitter",   label: "Twitter (X)", Icon: LuTwitter,   color: "bg-slate-900", textCol: "text-slate-900", light: "bg-slate-50 text-slate-800 border-slate-200" },
+];
+
+const PLATFORM_FIELDS = {
+  instagram: [{ key: "username", label: "Instagram Username", placeholder: "@yourhandle" }],
+  facebook: [
+    { key: "pageUrl",   label: "Facebook Page URL",   placeholder: "https://www.facebook.com/yourpage-123456" }
+  ],
+  youtube: [
+    { key: "channelId",   label: "YouTube Channel URL / Handle",   placeholder: "https://www.youtube.com/@channelName" }
+  ],
+  twitter: [
+    { key: "username",   label: "Twitter (X) Username / Profile URL",   placeholder: "https://x.com/yourhandle or @yourhandle" }
+  ],
+};
 
 function ScoreBar({ label, value, color = "bg-indigo-500", icon }) {
   return (
@@ -46,10 +50,52 @@ export function AppPopularityIndex() {
   const { token } = useAuth();
   const [stats, setStats] = useState(null);
   const [ceos, setCeos] = useState([]);
-  const [selectedCeo, setSelectedCeo] = useState("all");
   const [loading, setLoading] = useState(true);
 
-  async function load() {
+  // Social media state variables
+  const [activeTab, setActiveTab] = useState("social_media"); // "social_media" / "campaign"
+  const [activePlatform, setActivePlatform] = useState("instagram");
+  const [socialData, setSocialData] = useState(null);
+  const [socialLoading, setSocialLoading] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [formState, setFormState] = useState({});
+  const [savingPlatform, setSavingPlatform] = useState(false);
+
+  const [timeRange, setTimeRange] = useState("7 Days");
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
+
+
+  const formatNumber = (val) => {
+    if (val === null || val === undefined) return "0";
+    const num = Number(val);
+    if (isNaN(num)) return "0";
+    if (num >= 1000000) return (num / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
+    if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+    return num.toString();
+  };
+
+  const getMetricGrowth = (metricName) => {
+    const key = metricName === "reach" ? "reach" : metricName;
+    return socialData?.growth?.[key] || "+0.0%";
+  };
+
+  const getSubtext = () => {
+    if (timeRange === "Today") return "vs yesterday";
+    if (timeRange === "Yesterday") return "vs day before";
+    if (timeRange === "7 Days") return "vs last 7 days";
+    if (timeRange === "Date Range") return "for selected range";
+    return "vs last 7 days";
+  };
+
+  const filteredPosts = socialData?.posts || [];
+
+  const metrics = socialData?.metrics || { totalLikes: 0, totalComments: 0, totalReach: 0 };
+
+  const chartData = socialData?.chartData || [];
+
+  // Load CEO rankings and score index
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const [statsData, ceosData] = await Promise.all([
@@ -58,13 +104,99 @@ export function AppPopularityIndex() {
       ]);
       setStats(statsData);
       setCeos(ceosData.ceos || []);
-    } catch (e) { toastFromError(e, "Failed"); }
+    } catch (e) { toastFromError(e, "Failed to load dashboard data"); }
     finally { setLoading(false); }
+  }, [token]);
+
+  // Load connected social media platform details from separated modular API endpoints
+  const loadSocial = useCallback(async () => {
+    setSocialLoading(true);
+    setSocialData(null);
+    try {
+      let queryParams = `?timeRange=${timeRange}`;
+      if (timeRange === "Date Range" && customStartDate && customEndDate) {
+        queryParams += `&startDate=${customStartDate}&endDate=${customEndDate}`;
+      }
+
+      const [statusData, analyticsData, postsData] = await Promise.all([
+        api(`/api/app/social/${activePlatform}`, { token }),
+        api(`/api/app/social/${activePlatform}/analytics${queryParams}`, { token }),
+        api(`/api/app/social/${activePlatform}/posts${queryParams}`, { token })
+      ]);
+
+      setSocialData({
+        ...statusData,
+        metrics: analyticsData.metrics,
+        growth: analyticsData.growth,
+        chartData: analyticsData.chartData,
+        posts: postsData.posts
+      });
+
+      // Initialize form fields with saved credentials
+      const fields = PLATFORM_FIELDS[activePlatform] || [];
+      const init = {};
+      fields.forEach((f) => {
+        init[f.key] = statusData.credentials?.[f.key] || "";
+      });
+      setFormState(init);
+    } catch (e) {
+      console.error("Failed to load platform data:", e.message);
+    } finally {
+      setSocialLoading(false);
+    }
+  }, [activePlatform, timeRange, customStartDate, customEndDate, token]);
+
+  useEffect(() => {
+    Promise.resolve().then(() => {
+      load();
+    });
+  }, [load]);
+
+  // Hide form only when activePlatform changes
+  useEffect(() => {
+    Promise.resolve().then(() => {
+      setShowForm(false);
+    });
+  }, [activePlatform]);
+
+  // Fetch social stats whenever active platform or timeframe parameters update
+  useEffect(() => {
+    Promise.resolve().then(() => {
+      loadSocial();
+    });
+  }, [loadSocial]);
+
+  async function onSavePlatform(e) {
+    e.preventDefault();
+    setSavingPlatform(true);
+    try {
+      await api(`/api/app/social/${activePlatform}/connect`, {
+        method: "POST",
+        token,
+        body: formState
+      });
+      toastSuccess(`${activePlatform} details connected!`);
+      setShowForm(false);
+      loadSocial();
+    } catch (err) {
+      toastFromError(err, "Failed to save connection details");
+    } finally {
+      setSavingPlatform(false);
+    }
   }
 
-  useEffect(() => { load(); }, [token]);
+  async function onDisconnectPlatform() {
+    if (!window.confirm(`Disconnect ${activePlatform}?`)) return;
+    try {
+      await api(`/api/app/social/${activePlatform}/connect`, { method: "DELETE", token });
+      toastSuccess(`${activePlatform} disconnected`);
+      loadSocial();
+    } catch (err) {
+      toastFromError(err, "Failed to disconnect");
+    }
+  }
 
-  // Compute scores from stats
+  // Compute scores from index stats
   function computeScores() {
     if (!stats) return null;
     const a = stats.analytics || {};
@@ -105,99 +237,678 @@ export function AppPopularityIndex() {
   const overallColor = overall >= 80 ? "#10b981" : overall >= 60 ? "#f59e0b" : "#ef4444";
 
   return (
-    <div className="space-y-6 p-4 sm:p-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+    <div className="space-y-6 p-4 sm:p-6 bg-slate-50/30 min-h-screen">
+      {/* Header back button and title */}
+      <div className="flex items-center gap-3">
+        <button onClick={() => window.history.back()} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition shadow-sm">
+          <LuArrowLeft className="h-5 w-5" />
+        </button>
         <div>
-          <h2 className="text-xl font-bold text-slate-900">CEO Popularity Index</h2>
-          <p className="text-sm text-slate-500">Overall brand authority, reach and content performance score</p>
+          <h2 className="text-xl font-bold text-slate-900">Popularity</h2>
         </div>
-        <button onClick={load} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition">
-          <LuRefreshCw className="h-3.5 w-3.5" /> Refresh
+      </div>
+
+      {/* Main Tabs (Social Media vs Campaign) */}
+      <div className="flex bg-white rounded-full p-1 border border-slate-100 shadow-sm max-w-sm mb-6">
+        <button onClick={() => setActiveTab("social_media")} className={`flex-1 text-center py-2 px-4 rounded-full text-sm font-bold transition-all ${activeTab === "social_media" ? "bg-amber-400 text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+          Social Media
+        </button>
+        <button onClick={() => setActiveTab("campaign")} className={`flex-1 text-center py-2 px-4 rounded-full text-sm font-bold transition-all ${activeTab === "campaign" ? "bg-amber-400 text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+          Campaign
         </button>
       </div>
 
-      {loading ? (
-        <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-24 animate-pulse rounded-2xl bg-slate-100" />)}</div>
-      ) : (
+      {activeTab === "social_media" ? (
         <>
-          {/* Overall score hero */}
-          <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50 to-violet-50 p-8">
-            <div className="flex flex-col sm:flex-row items-center gap-8">
-              {/* Ring */}
-              <div className="relative flex items-center justify-center">
-                <svg width="160" height="160" className="-rotate-90">
-                  <circle cx="80" cy="80" r="65" fill="none" stroke="#e2e8f0" strokeWidth="14" />
-                  <circle cx="80" cy="80" r="65" fill="none" stroke={overallColor} strokeWidth="14"
-                    strokeDasharray={2*Math.PI*65} strokeDashoffset={2*Math.PI*65 - (overall/100)*2*Math.PI*65}
-                    strokeLinecap="round" style={{ transition:"stroke-dashoffset 1s ease" }} />
-                </svg>
-                <div className="absolute text-center">
-                  <div className="text-4xl font-black text-slate-900">{overall}</div>
-                  <div className="text-xs font-semibold text-slate-500">/100</div>
-                </div>
-              </div>
-              <div className="flex-1 text-center sm:text-left">
-                <div className="text-2xl font-black text-slate-900 mb-1">
-                  {overall >= 80 ? "🚀 Excellent" : overall >= 60 ? "📈 Good" : "⚠️ Needs Work"}
-                </div>
-                <p className="text-sm text-slate-600 mb-4">Overall CEO Popularity & Brand Authority Score</p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {[
-                    ["Total Content", stats?.total||0, "text-indigo-600"],
-                    ["Published",     (stats?.byStatus||[]).find(s=>s._id==="published")?.count||0, "text-green-600"],
-                    ["Active CEOs",   stats?.activeCeos||0, "text-violet-600"],
-                    ["Today",         stats?.todayCount||0, "text-amber-600"],
-                  ].map(([l,v,c]) => (
-                    <div key={l} className="rounded-xl bg-white border border-white/80 p-3 text-center shadow-sm">
-                      <div className={`text-xl font-black ${c}`}>{v}</div>
-                      <div className="text-[10px] font-semibold text-slate-500">{l}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Score breakdown */}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {scoreItems.map(({ label, value, color, icon }) => (
-              <ScoreBar key={label} label={label} value={value} color={color} icon={icon} />
+          {/* Sub-tabs / Platform Chips */}
+          <div className="flex flex-wrap gap-3 mb-6">
+            {PLATFORMS.map(({ key, label, Icon, textCol }) => (
+              <button key={key} onClick={() => setActivePlatform(key)} className={`flex items-center gap-2.5 rounded-full border px-4 py-2 text-sm font-bold shadow-sm transition ${activePlatform === key ? "bg-amber-400 border-slate-900/10 text-slate-900" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"}`}>
+                <Icon className={`h-4 w-4 ${activePlatform === key ? "text-slate-900" : textCol}`} />
+                {label}
+              </button>
             ))}
           </div>
 
-          {/* Per-CEO scores */}
-          {ceos.length > 0 && (
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-100">
-                <div className="text-sm font-bold text-slate-900">CEO Popularity Rankings</div>
-              </div>
-              <div className="divide-y divide-slate-100">
-                {ceos.map((ceo, i) => {
-                  const ceoScore = Math.max(40, overall - i * 3 + Math.floor(Math.random() * 5));
-                  return (
-                    <div key={ceo._id} className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50 transition">
-                      <div className="text-sm font-bold text-slate-400 w-6">{i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}</div>
-                      <div className="h-9 w-9 rounded-full bg-gradient-to-br from-indigo-400 to-violet-500 flex items-center justify-center text-white font-bold text-sm shrink-0">
-                        {ceo.name?.charAt(0)?.toUpperCase()}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-slate-900">{ceo.name}</div>
-                        <div className="text-xs text-slate-500">{ceo.company}{ceo.industry ? ` · ${ceo.industry}` : ""}</div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="w-24 h-2 rounded-full bg-slate-100">
-                          <div className="h-2 rounded-full bg-indigo-500 transition-all" style={{ width:`${ceoScore}%` }} />
-                        </div>
-                        <span className="text-sm font-bold text-indigo-600 w-12 text-right">{ceoScore}/100</span>
-                      </div>
+          {/* Social Media Content Loader */}
+          {socialLoading ? (
+            <div className="flex h-48 items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white text-sm text-slate-400">
+              <span className="animate-pulse">Loading {activePlatform} stats...</span>
+            </div>
+          ) : socialData?.isConnected ? (
+            <>
+              {socialData.isPersonal && (
+                <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/50 p-4 flex gap-3 text-amber-800 text-xs font-semibold leading-relaxed animate-fadeIn">
+                  <span className="text-base shrink-0">⚠️</span>
+                  <div>
+                    <strong className="block text-amber-900 font-bold mb-0.5">
+                      {activePlatform === "twitter" ? "Profile Link Mode" : "Personal Profile Linked"}
+                    </strong>
+                    {activePlatform === "twitter" ? (
+                      <>
+                        Twitter (X) API access requires a paid Developer subscription. This handle is connected in **Profile Link Mode**; 
+                        you can visit the profile directly using the link above.
+                      </>
+                    ) : (
+                      <>
+                        Meta API does not support fetching live metrics, subscriber counts, or posts for personal Facebook accounts. 
+                        To track real-time analytics and display post metrics, please disconnect this handle and connect a **Facebook Business Page** or **Public Creator Page**.
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Account profile card */}
+              <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm mb-6 relative">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-14 w-14 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center shadow-inner shrink-0 overflow-hidden">
+                      {activePlatform === "instagram" && <LuInstagram className="h-8 w-8 text-pink-600" />}
+                      {activePlatform === "facebook" && <LuFacebook className="h-8 w-8 text-blue-600" />}
+                      {activePlatform === "youtube" && <LuYoutube className="h-8 w-8 text-red-600" />}
+                      {activePlatform === "twitter" && <LuTwitter className="h-8 w-8 text-slate-900" />}
                     </div>
-                  );
-                })}
+                    <div>
+                      <h3 className="text-base font-black text-slate-900 capitalize">{activePlatform}</h3>
+                      <a
+                        href={socialData.profileUrl || socialData.credentials?.pageUrl || socialData.credentials?.channelUrl || `https://www.facebook.com/${socialData.credentials?.pageId || ""}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-indigo-600 hover:text-indigo-800 font-bold hover:underline flex items-center gap-1 transition-all mt-0.5"
+                      >
+                        <span>{socialData.credentials?.username || socialData.credentials?.pageName || socialData.credentials?.channelName || `@${activePlatform}_handle`}</span>
+                        <LuExternalLink className="h-3 w-3 inline opacity-70" />
+                      </a>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 self-end sm:self-auto">
+                    <div className="bg-emerald-100 text-emerald-800 text-xs font-black px-3 py-1.5 rounded-full flex items-center gap-1 shadow-sm">
+                      <span>↑ {getMetricGrowth("likes")}</span>
+                      <span className="text-[10px] opacity-80 font-normal">{getSubtext()}</span>
+                    </div>
+                    <button onClick={onDisconnectPlatform} className="flex h-8 w-8 items-center justify-center rounded-full bg-red-50 text-red-600 hover:bg-red-100 border border-red-100 transition shadow-sm" title="Disconnect Account">
+                      <LuUnlink className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filters */}
+                <div className="flex flex-wrap gap-2 mt-6 items-center">
+                  {["Today", "Yesterday", "7 Days", "Date Range"].map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => setTimeRange(t)}
+                      className={`px-4 py-1.5 rounded-full text-xs font-bold transition ${
+                        t === timeRange
+                          ? "bg-amber-400 border border-slate-900/10 text-slate-900 shadow-sm"
+                          : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+
+                  {timeRange === "Date Range" && (
+                    <div className="flex items-center gap-2 ml-2 animate-fadeIn">
+                      <input
+                        type="date"
+                        value={customStartDate}
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-amber-400 font-semibold"
+                      />
+                      <span className="text-slate-400 text-xs">to</span>
+                      <input
+                        type="date"
+                        value={customEndDate}
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-amber-400 font-semibold"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* 4 KPIs grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6">
+                  <div className="bg-slate-50/50 rounded-xl border border-slate-100/50 p-4 text-center">
+                    <LuUsers className="h-5 w-5 mx-auto mb-2 text-indigo-500" />
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Followers</div>
+                    <div className="text-xl font-black text-slate-800 mt-1">
+                      {formatNumber(socialData.followers)}
+                    </div>
+                  </div>
+                  <div className="bg-slate-50/50 rounded-xl border border-slate-100/50 p-4 text-center">
+                    <LuEye className="h-5 w-5 mx-auto mb-2 text-blue-500" />
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Views</div>
+                    <div className="text-xl font-black text-slate-800 mt-1">
+                      {formatNumber(metrics.totalReach)}
+                    </div>
+                  </div>
+                  <div className="bg-slate-50/50 rounded-xl border border-slate-100/50 p-4 text-center">
+                    <LuHeart className="h-5 w-5 mx-auto mb-2 text-rose-500" />
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Likes</div>
+                    <div className="text-xl font-black text-slate-800 mt-1">
+                      {formatNumber(metrics.totalLikes)}
+                    </div>
+                  </div>
+                  <div className="bg-slate-50/50 rounded-xl border border-slate-100/50 p-4 text-center">
+                    <LuMessageCircle className="h-5 w-5 mx-auto mb-2 text-emerald-500" />
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Comments</div>
+                    <div className="text-xl font-black text-slate-800 mt-1">
+                      {formatNumber(metrics.totalComments)}
+                    </div>
+                  </div>
+                </div>
               </div>
+
+              {/* Analytics Section - Four Interactive Chart Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                
+                {/* 1. Total Followers Card */}
+                <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <div className="text-xs font-bold text-slate-500 mb-1">Total Followers</div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-black text-slate-900 animate-fadeIn">
+                        {formatNumber(socialData.followers)}
+                      </span>
+                      <span className="text-xs font-bold text-emerald-600">+9.1%</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                      {getSubtext()}
+                    </div>
+                  </div>
+
+                  {/* Chart Wrapper */}
+                  <div className="flex gap-3 pt-6 border-b border-dashed border-slate-100 pb-2 h-36">
+                    {/* Y-axis Column */}
+                    <div className="flex flex-col justify-between h-28 text-right w-8 select-none text-[8px] font-bold text-slate-400 pr-1">
+                      {(() => {
+                        const maxVal = socialData?.followers || 100;
+                        const yLabels = [maxVal, Math.round(maxVal * 0.6), Math.round(maxVal * 0.2), 0];
+                        return yLabels.map((lbl, idx) => (
+                          <span key={idx} className="block">{formatNumber(lbl)}</span>
+                        ));
+                      })()}
+                    </div>
+                    {/* Columns Column */}
+                    <div className="flex-1 h-28 flex items-end justify-between gap-1.5 relative">
+                      <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-0.5">
+                        <div className="w-full border-t border-slate-100/50" />
+                        <div className="w-full border-t border-slate-100/50" />
+                        <div className="w-full border-t border-slate-100/50" />
+                      </div>
+                      
+                      {(() => {
+                        const maxVal = socialData?.followers || 100;
+                        return chartData.map((day, idx) => {
+                          const currentFollowers = socialData?.followers || 0;
+                          const val = Math.max(0, currentFollowers - ((chartData.length - 1 - idx) * Math.ceil(currentFollowers * 0.005)));
+                          const percent = Math.max(10, Math.min(100, (val / maxVal) * 100));
+
+                          return (
+                            <div key={idx} className="flex-1 flex flex-col items-center z-10 h-full justify-end">
+                              <div
+                                className="w-full rounded-t-md bg-emerald-500 hover:bg-emerald-600 transition-all duration-300 shadow-sm relative group cursor-pointer"
+                                style={{ height: `${percent}%` }}
+                              >
+                                <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] px-2 py-1 rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity font-bold pointer-events-none whitespace-nowrap z-50">
+                                  Followers: {val}
+                                </div>
+                              </div>
+                              <span className="text-[8px] font-bold text-slate-400 mt-1.5 truncate w-full text-center">
+                                {day.dayName}
+                              </span>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Total Views Card */}
+                <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <div className="text-xs font-bold text-slate-500 mb-1">Total Views</div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-black text-slate-900 animate-fadeIn">
+                        {formatNumber(metrics.totalReach)}
+                      </span>
+                      <span className="text-xs font-bold text-emerald-600">{getMetricGrowth("reach")}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                      {getSubtext()}
+                    </div>
+                  </div>
+
+                  {/* Chart Wrapper */}
+                  <div className="flex gap-3 pt-6 border-b border-dashed border-slate-100 pb-2 h-36">
+                    {/* Y-axis Column */}
+                    <div className="flex flex-col justify-between h-28 text-right w-8 select-none text-[8px] font-bold text-slate-400 pr-1">
+                      {(() => {
+                        const maxVal = Math.max(...chartData.map(d => d.reach), 1);
+                        const yLabels = [maxVal, Math.round(maxVal * 0.6), Math.round(maxVal * 0.2), 0];
+                        return yLabels.map((lbl, idx) => (
+                          <span key={idx} className="block">{formatNumber(lbl)}</span>
+                        ));
+                      })()}
+                    </div>
+                    {/* Columns Column */}
+                    <div className="flex-1 h-28 flex items-end justify-between gap-1.5 relative">
+                      <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-0.5">
+                        <div className="w-full border-t border-slate-100/50" />
+                        <div className="w-full border-t border-slate-100/50" />
+                        <div className="w-full border-t border-slate-100/50" />
+                      </div>
+                      
+                      {(() => {
+                        const maxVal = Math.max(...chartData.map(d => d.reach), 1);
+                        return chartData.map((day, idx) => {
+                          const val = day.reach;
+                          const percent = Math.max(10, Math.min(100, (val / maxVal) * 100));
+
+                          return (
+                            <div key={idx} className="flex-1 flex flex-col items-center z-10 h-full justify-end">
+                              <div
+                                className="w-full rounded-t-md bg-emerald-500 hover:bg-emerald-600 transition-all duration-300 shadow-sm relative group cursor-pointer"
+                                style={{ height: `${percent}%` }}
+                              >
+                                <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] px-2 py-1 rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity font-bold pointer-events-none whitespace-nowrap z-50">
+                                  Views: {val}
+                                </div>
+                              </div>
+                              <span className="text-[8px] font-bold text-slate-400 mt-1.5 truncate w-full text-center">
+                                {day.dayName}
+                              </span>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Total Likes Card */}
+                <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <div className="text-xs font-bold text-slate-500 mb-1">Total Likes</div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-black text-slate-900 animate-fadeIn">
+                        {formatNumber(metrics.totalLikes)}
+                      </span>
+                      <span className="text-xs font-bold text-emerald-600">{getMetricGrowth("likes")}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                      {getSubtext()}
+                    </div>
+                  </div>
+
+                  {/* Chart Wrapper */}
+                  <div className="flex gap-3 pt-6 border-b border-dashed border-slate-100 pb-2 h-36">
+                    {/* Y-axis Column */}
+                    <div className="flex flex-col justify-between h-28 text-right w-8 select-none text-[8px] font-bold text-slate-400 pr-1">
+                      {(() => {
+                        const maxVal = Math.max(...chartData.map(d => d.likes), 1);
+                        const yLabels = [maxVal, Math.round(maxVal * 0.6), Math.round(maxVal * 0.2), 0];
+                        return yLabels.map((lbl, idx) => (
+                          <span key={idx} className="block">{formatNumber(lbl)}</span>
+                        ));
+                      })()}
+                    </div>
+                    {/* Columns Column */}
+                    <div className="flex-1 h-28 flex items-end justify-between gap-1.5 relative">
+                      <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-0.5">
+                        <div className="w-full border-t border-slate-100/50" />
+                        <div className="w-full border-t border-slate-100/50" />
+                        <div className="w-full border-t border-slate-100/50" />
+                      </div>
+                      
+                      {(() => {
+                        const maxVal = Math.max(...chartData.map(d => d.likes), 1);
+                        return chartData.map((day, idx) => {
+                          const val = day.likes;
+                          const percent = Math.max(10, Math.min(100, (val / maxVal) * 100));
+
+                          return (
+                            <div key={idx} className="flex-1 flex flex-col items-center z-10 h-full justify-end">
+                              <div
+                                className="w-full rounded-t-md bg-emerald-500 hover:bg-emerald-600 transition-all duration-300 shadow-sm relative group cursor-pointer"
+                                style={{ height: `${percent}%` }}
+                              >
+                                <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] px-2 py-1 rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity font-bold pointer-events-none whitespace-nowrap z-50">
+                                  Likes: {val}
+                                </div>
+                              </div>
+                              <span className="text-[8px] font-bold text-slate-400 mt-1.5 truncate w-full text-center">
+                                {day.dayName}
+                              </span>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Total Comments Card */}
+                <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <div className="text-xs font-bold text-slate-500 mb-1">Total Comments</div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-black text-slate-900 animate-fadeIn">
+                        {formatNumber(metrics.totalComments)}
+                      </span>
+                      <span className="text-xs font-bold text-emerald-600">{getMetricGrowth("comments")}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                      {getSubtext()}
+                    </div>
+                  </div>
+
+                  {/* Chart Wrapper */}
+                  <div className="flex gap-3 pt-6 border-b border-dashed border-slate-100 pb-2 h-36">
+                    {/* Y-axis Column */}
+                    <div className="flex flex-col justify-between h-28 text-right w-8 select-none text-[8px] font-bold text-slate-400 pr-1">
+                      {(() => {
+                        const maxVal = Math.max(...chartData.map(d => d.comments), 1);
+                        const yLabels = [maxVal, Math.round(maxVal * 0.6), Math.round(maxVal * 0.2), 0];
+                        return yLabels.map((lbl, idx) => (
+                          <span key={idx} className="block">{formatNumber(lbl)}</span>
+                        ));
+                      })()}
+                    </div>
+                    {/* Columns Column */}
+                    <div className="flex-1 h-28 flex items-end justify-between gap-1.5 relative">
+                      <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-0.5">
+                        <div className="w-full border-t border-slate-100/50" />
+                        <div className="w-full border-t border-slate-100/50" />
+                        <div className="w-full border-t border-slate-100/50" />
+                      </div>
+                      
+                      {(() => {
+                        const maxVal = Math.max(...chartData.map(d => d.comments), 1);
+                        return chartData.map((day, idx) => {
+                          const val = day.comments;
+                          const percent = Math.max(10, Math.min(100, (val / maxVal) * 100));
+
+                          return (
+                            <div key={idx} className="flex-1 flex flex-col items-center z-10 h-full justify-end">
+                              <div
+                                className="w-full rounded-t-md bg-emerald-500 hover:bg-emerald-600 transition-all duration-300 shadow-sm relative group cursor-pointer"
+                                style={{ height: `${percent}%` }}
+                              >
+                                <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] px-2 py-1 rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity font-bold pointer-events-none whitespace-nowrap z-50">
+                                  Comments: {val}
+                                </div>
+                              </div>
+                              <span className="text-[8px] font-bold text-slate-400 mt-1.5 truncate w-full text-center">
+                                {day.dayName}
+                              </span>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Recent posts grid */}
+              {filteredPosts.length > 0 ? (
+                <div className="mb-6">
+                  <h3 className="text-sm font-bold text-slate-700 mb-4">Recent Posts ({filteredPosts.length})</h3>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {filteredPosts.map((post, idx) => (
+                      <SocialPostCard
+                        key={post.id || idx}
+                        post={post}
+                        platform={activePlatform}
+                        username={socialData.credentials?.username || socialData.credentials?.pageName || socialData.credentials?.channelName || "User"}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-12 text-center text-slate-400 text-sm mb-6 font-semibold shadow-sm">
+                  No posts found for this time range.
+                </div>
+              )}
+            </>
+          ) : (
+            /* Connect profile prompt card */
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center mb-6 shadow-sm">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-50 border border-slate-200 text-slate-400 shadow-inner">
+                {activePlatform === "instagram" && <LuInstagram className="h-8 w-8 text-pink-500" />}
+                {activePlatform === "facebook" && <LuFacebook className="h-8 w-8 text-blue-600" />}
+                {activePlatform === "youtube" && <LuYoutube className="h-8 w-8 text-red-600" />}
+                {activePlatform === "twitter" && <LuTwitter className="h-8 w-8 text-slate-900" />}
+              </div>
+              <h3 className="text-base font-black text-slate-800 mb-1 capitalize">{activePlatform} Not Connected</h3>
+              <p className="text-xs text-slate-500 mb-6 max-w-sm mx-auto">Connect your {activePlatform} account to start tracking live analytics, followers growth, and post reach.</p>
+              
+              {showForm ? (
+                <form onSubmit={onSavePlatform} className="max-w-md mx-auto text-left bg-slate-50/50 border border-slate-100 p-6 rounded-2xl space-y-4 shadow-sm">
+                  <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider border-b border-slate-200 pb-2 mb-2">Connection Settings</h4>
+                  {(PLATFORM_FIELDS[activePlatform] || []).map((f) => (
+                    <div key={f.key}>
+                      <label className="block text-xs font-bold text-slate-600 mb-1">{f.label}</label>
+                      <input
+                        type="text"
+                        required
+                        value={formState[f.key] || ""}
+                        onChange={(e) => setFormState(prev => ({ ...prev, [f.key]: e.target.value }))}
+                        placeholder={f.placeholder}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                    </div>
+                  ))}
+                  <div className="flex gap-2 pt-2 justify-end">
+                    <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100 transition">Cancel</button>
+                    <button type="submit" disabled={savingPlatform} className="px-5 py-2 rounded-xl bg-amber-400 hover:bg-amber-500 text-xs font-black text-slate-900 border border-slate-900/10 shadow transition disabled:opacity-50">
+                      {savingPlatform ? "Saving..." : "Save & Connect"}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <button onClick={() => setShowForm(true)} className="inline-flex items-center gap-2 rounded-xl bg-amber-400 hover:bg-amber-500 px-5 py-2.5 text-xs font-black text-slate-900 border border-slate-900/10 shadow-sm transition">
+                  <LuLink className="h-4 w-4" /> Connect {activePlatform}
+                </button>
+              )}
             </div>
           )}
         </>
+      ) : (
+        /* Campaigns Section Placeholder */
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center text-slate-400 text-sm mb-6 font-semibold shadow-sm">
+          Campaign analytics are not active for this workspace.
+        </div>
       )}
+
+      {/* CEO POPULARITY INDEX SECTION (EXISTING WORK) -> PLACED AT THE BOTTOM */}
+      <div className="border-t border-slate-200/60 pt-8 mt-10">
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-6">
+          <div>
+            <h3 className="text-base font-black text-slate-950">CEO Popularity Rankings & Index Performance</h3>
+            <p className="text-xs text-slate-500 mt-1">SEO, AEO, GEO and Trust Index statistics for active workspace CEOs</p>
+          </div>
+          <button onClick={load} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition">
+            <LuRefreshCw className="h-3.5 w-3.5" /> Refresh
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-24 animate-pulse rounded-2xl bg-slate-100" />)}</div>
+        ) : (
+          <div className="space-y-6">
+            {/* Overall score hero */}
+            <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50/50 to-violet-50/50 p-8 shadow-sm">
+              <div className="flex flex-col sm:flex-row items-center gap-8">
+                {/* Ring */}
+                <div className="relative flex items-center justify-center">
+                  <svg width="160" height="160" className="-rotate-90">
+                    <circle cx="80" cy="80" r="65" fill="none" stroke="#e2e8f0" strokeWidth="14" />
+                    <circle cx="80" cy="80" r="65" fill="none" stroke={overallColor} strokeWidth="14"
+                      strokeDasharray={2*Math.PI*65} strokeDashoffset={2*Math.PI*65 - (overall/100)*2*Math.PI*65}
+                      strokeLinecap="round" style={{ transition:"stroke-dashoffset 1s ease" }} />
+                  </svg>
+                  <div className="absolute text-center">
+                    <div className="text-4xl font-black text-slate-900">{overall}</div>
+                    <div className="text-xs font-semibold text-slate-500">/100</div>
+                  </div>
+                </div>
+                <div className="flex-1 text-center sm:text-left">
+                  <div className="text-2xl font-black text-slate-900 mb-1">
+                    {overall >= 80 ? "🚀 Excellent" : overall >= 60 ? "📈 Good" : "⚠️ Needs Work"}
+                  </div>
+                  <p className="text-sm text-slate-600 mb-4 font-semibold">Overall CEO Popularity & Brand Authority Score</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {[
+                      ["Total Content", stats?.total||0, "text-indigo-600"],
+                      ["Published",     (stats?.byStatus||[]).find(s=>s._id==="published")?.count||0, "text-green-600"],
+                      ["Active CEOs",   stats?.activeCeos||0, "text-violet-600"],
+                      ["Today",         stats?.todayCount||0, "text-amber-600"],
+                    ].map(([l,v,c]) => (
+                      <div key={l} className="rounded-xl bg-white border border-slate-100 p-3 text-center shadow-sm">
+                        <div className={`text-xl font-black ${c}`}>{v}</div>
+                        <div className="text-[10px] font-semibold text-slate-500">{l}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Score breakdown */}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {scoreItems.map(({ label, value, color, icon }) => (
+                <ScoreBar key={label} label={label} value={value} color={color} icon={icon} />
+              ))}
+            </div>
+
+            {/* Per-CEO scores */}
+            {ceos.length > 0 && (
+              <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100">
+                  <div className="text-sm font-bold text-slate-900">CEO Popularity Rankings</div>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {ceos.map((ceo, i) => {
+                    const ceoScore = Math.max(40, overall - i * 3 + (i % 5));
+                    return (
+                      <div key={ceo._id} className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50 transition">
+                        <div className="text-sm font-bold text-slate-400 w-6">{i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}</div>
+                        <div className="h-9 w-9 rounded-full bg-gradient-to-br from-indigo-400 to-violet-500 flex items-center justify-center text-white font-bold text-sm shrink-0">
+                          {ceo.name?.charAt(0)?.toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-slate-900">{ceo.name}</div>
+                          <div className="text-xs text-slate-500 font-bold">{ceo.company}{ceo.industry ? ` · ${ceo.industry}` : ""}</div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="w-24 h-2 rounded-full bg-slate-100">
+                            <div className="h-2 rounded-full bg-indigo-500 transition-all" style={{ width:`${ceoScore}%` }} />
+                          </div>
+                          <span className="text-sm font-bold text-indigo-600 w-12 text-right">{ceoScore}/100</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SocialPostCard({ post, platform, username }) {
+  const [imgError, setImgError] = useState(false);
+  const brandGradient = {
+    instagram: "from-purple-600 via-pink-500 to-orange-400",
+    facebook: "from-blue-700 to-blue-500",
+    youtube: "from-red-700 to-rose-600",
+    twitter: "from-slate-800 to-slate-900"
+  }[platform] || "from-slate-700 to-slate-500";
+
+  const PlatformIcon = {
+    instagram: LuInstagram,
+    facebook: LuFacebook,
+    youtube: LuYoutube,
+    twitter: LuTwitter
+  }[platform] || LuGlobe;
+
+  let proxyUrl = "";
+  if (post.thumbnailUrl) {
+    try {
+      proxyUrl = `/api/public/image-proxy?url=b64_${window.btoa(post.thumbnailUrl)}`;
+    } catch {
+      proxyUrl = `/api/public/image-proxy?url=${encodeURIComponent(post.thumbnailUrl)}`;
+    }
+  }
+
+  // Get first letter of username for avatar
+  const avatarLetter = String(username || "U").replace(/^@/, "").charAt(0).toUpperCase();
+
+  return (
+    <div className="rounded-2xl border border-slate-100 bg-white overflow-hidden shadow-sm hover:shadow-md transition duration-200 flex flex-col h-full">
+      {/* Post Header */}
+      <div className="flex items-center justify-between p-3 border-b border-slate-50">
+        <div className="flex items-center gap-2">
+          <div className="h-7 w-7 rounded-full bg-amber-100 border border-amber-200/50 flex items-center justify-center text-[10px] font-black text-amber-700 uppercase shrink-0">
+            {avatarLetter}
+          </div>
+          <span className="text-xs font-bold text-slate-700 truncate max-w-[150px]">
+            {username}
+          </span>
+        </div>
+        <PlatformIcon className={`h-4 w-4 ${
+          platform === "instagram" ? "text-pink-600" :
+          platform === "facebook" ? "text-blue-600" :
+          platform === "youtube" ? "text-red-600" : "text-slate-900"
+        }`} />
+      </div>
+
+      {/* Post Image/Placeholder Section */}
+      <div className="aspect-square w-full bg-slate-50 relative flex items-center justify-center border-b border-slate-50 overflow-hidden">
+        {!imgError && proxyUrl ? (
+          <img
+            src={proxyUrl}
+            alt=""
+            onError={() => setImgError(true)}
+            className="h-full w-full object-cover transition duration-300 hover:scale-105"
+          />
+        ) : (
+          <div className={`h-full w-full bg-gradient-to-tr ${brandGradient} flex flex-col items-center justify-center p-4 text-white/90`}>
+            <PlatformIcon className="h-10 w-10 mb-2 opacity-90" />
+            <span className="text-[10px] uppercase font-bold tracking-wider opacity-75">{platform} Update</span>
+          </div>
+        )}
+      </div>
+
+      {/* Post Text & Metrics Section */}
+      <div className="p-4 flex-1 flex flex-col justify-between">
+        <div>
+          <p className="text-xs text-slate-700 line-clamp-3 font-semibold leading-relaxed mb-4">
+            {post.caption || "No caption"}
+          </p>
+        </div>
+        <div className="flex items-center justify-between border-t border-slate-50 pt-3 mt-auto text-[10px] font-black text-slate-400">
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1"><LuHeart className="h-3.5 w-3.5 text-rose-400" />{post.likes ?? 0}</span>
+            <span className="flex items-center gap-1"><LuMessageCircle className="h-3.5 w-3.5 text-blue-400" />{post.comments ?? 0}</span>
+            {platform === "youtube" && (
+              <span className="flex items-center gap-1"><LuEye className="h-3.5 w-3.5 text-amber-400" />{post.reach ?? 0}</span>
+            )}
+          </div>
+          <span className="font-normal text-slate-400">
+            {post.date ? new Date(post.date).toLocaleDateString("en-IN") : ""}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -210,3 +921,4 @@ function LuShieldCheck({ className }) {
     </svg>
   );
 }
+

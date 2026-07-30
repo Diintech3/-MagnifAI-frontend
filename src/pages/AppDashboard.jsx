@@ -192,9 +192,9 @@ export function AppDashboard() {
         <Route path="tools"            element={<AppTools />} />
         <Route path="ugc-prompter"     element={<AppScriptsApproval />} />
         <Route path="personality"      element={<AppPersonalityComingSoon />} />
-        <Route path="personal-ai"      element={<AppPersonalAIComingSoon />} />
+        <Route path="personal-ai"      element={<AppAiAgent mode="personal" />} />
         <Route path="daily-planner"    element={<AppDailyPlanner />} />
-        <Route path="ai-agent"         element={<AppAiAgent />} />
+        <Route path="ai-agent"         element={<AppAiAgent mode="business" />} />
         <Route path="help"             element={<HelpPage />} />
         <Route path="*"                element={<Navigate to={basePath} replace />} />
       </Routes>

@@ -80,15 +80,12 @@ const providerVoices = {
     { value: "custom", label: "Custom Voice ID..." }
   ]
 };
-
-export function AppAiAgent() {
+export function AppAiAgent({ mode = "business" }) {
   const { token, user } = useAuth();
   const [agents, setAgents] = useState([]);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedAgent, setSelectedAgent] = useState(null);
-
-  // Navigation Modes
-  const [viewMode, setViewMode] = useState("dashboard"); // dashboard | form
+  const [viewMode, setViewMode] = useState("list"); // list | dashboard | form
   const [dashboardTab, setDashboardTab] = useState("overview"); // overview | logs | playground
   const [formActiveTab, setFormActiveTab] = useState("message"); // message | info | voice | system | action | custom | kb | datasources
 
@@ -119,6 +116,23 @@ export function AppAiAgent() {
   const [custAuthorImage, setCustAuthorImage] = useState("");
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  const getAgentChatLink = (agentId, customizationObj) => {
+    const defaultLink = `https://vectorize.diintech.com/agent-chat?id=${agentId}`;
+    const customLink = customizationObj?.chat_link?.trim();
+    if (!customLink) return defaultLink;
+
+    let base = customLink;
+    if (!/^https?:\/\//i.test(base)) {
+      base = "https://" + base;
+    }
+    if (base.includes("/agent-chat")) {
+      return base.includes("?") ? `${base}&id=${agentId}` : `${base}?id=${agentId}`;
+    } else {
+      base = base.replace(/\/$/, "");
+      return `${base}/agent-chat?id=${agentId}`;
+    }
+  };
 
   async function handleLogoUpload(file) {
     if (!file) return;
@@ -246,13 +260,13 @@ export function AppAiAgent() {
 
   async function handleSaveSessionAudit(sessionId, type = "feedback") {
     const notesText = evalNoteMap[sessionId] || "";
-    
+
     // Validation for Report
     if (type === "report" && !notesText.trim()) {
       toastSuccess("Please add some report comments/notes first! 🚨");
       return;
     }
-    
+
     // Validation for Feedback
     if (type === "feedback" && !notesText.trim() && !evaluations[sessionId]) {
       toastSuccess("Please select a star rating or write some assessment notes first! 🎯");
@@ -306,9 +320,9 @@ export function AppAiAgent() {
       // Draw background gradient based on template
       const grad = ctx.createLinearGradient(0, 0, 1050, 600);
       if (cardData.template === "gold") {
-        grad.addColorStop(0, "#020617");
+        grad.addColorStop(0, "#030712");
         grad.addColorStop(0.5, "#0f172a");
-        grad.addColorStop(1, "#451a03");
+        grad.addColorStop(1, "#1c0d02");
       } else if (cardData.template === "yellow") {
         grad.addColorStop(0, "#facc15");
         grad.addColorStop(0.5, "#eab308");
@@ -321,72 +335,608 @@ export function AppAiAgent() {
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, 1050, 600);
 
-      // Gold Border
-      ctx.strokeStyle = cardData.template === "yellow" ? "#78350f" : "#f59e0b";
-      ctx.lineWidth = 10;
-      ctx.strokeRect(15, 15, 1020, 570);
+      // Gold Border (except for Yellow template which has its own borders)
+      if (cardData.template !== "yellow") {
+        ctx.strokeStyle = "#eab308";
+        ctx.lineWidth = 8;
+        ctx.strokeRect(15, 15, 1020, 570);
+      }
+
+      // Rounded rect helper
+      function drawRoundedRect(ctx, x, y, width, height, radius) {
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + width - radius, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+        ctx.lineTo(x + width, y + height - radius);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        ctx.lineTo(x + radius, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+      }
+
+      // Cover image helper
+      function drawCoverImage(ctx, img, x, y, w, h) {
+        const imgRatio = img.width / img.height;
+        const targetRatio = w / h;
+        let sx, sy, sw, sh;
+        if (imgRatio > targetRatio) {
+          sh = img.height;
+          sw = sh * targetRatio;
+          sx = (img.width - sw) / 2;
+          sy = 0;
+        } else {
+          sw = img.width;
+          sh = sw / targetRatio;
+          sx = 0;
+          sy = (img.height - sh) / 2;
+        }
+        ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+      }
 
       if (side === "front") {
-        // Executive Pass Badge
-        ctx.fillStyle = cardData.template === "yellow" ? "#78350f" : "#facc15";
-        ctx.font = "bold 26px sans-serif";
-        ctx.fillText("EXECUTIVE PASS", 60, 80);
+        const promises = [];
+        let avatarImg = null;
+        let logoImg = null;
+        let qrImg = null;
 
-        // Name
-        ctx.fillStyle = cardData.template === "yellow" ? "#0f172a" : "#ffffff";
-        ctx.font = "bold 52px sans-serif";
-        ctx.fillText(cardData.userName, 60, 160);
+        if (cardData.authorImgUrl) {
+          promises.push(
+            new Promise((resolveImg) => {
+              const img = new Image();
+              img.crossOrigin = "anonymous";
+              img.onload = () => { avatarImg = img; resolveImg(); };
+              img.onerror = () => resolveImg();
+              img.src = cardData.authorImgUrl;
+            })
+          );
+        }
 
-        // Title
-        ctx.fillStyle = cardData.template === "yellow" ? "#451a03" : "#fbbf24";
-        ctx.font = "bold 32px sans-serif";
-        ctx.fillText("CEO & FOUNDER", 60, 215);
+        if (cardData.logoImgUrl) {
+          promises.push(
+            new Promise((resolveImg) => {
+              const img = new Image();
+              img.crossOrigin = "anonymous";
+              img.onload = () => { logoImg = img; resolveImg(); };
+              img.onerror = () => resolveImg();
+              img.src = cardData.logoImgUrl;
+            })
+          );
+        }
 
-        // Subtitle
-        ctx.fillStyle = cardData.template === "yellow" ? "#1e293b" : "#cbd5e1";
-        ctx.font = "24px sans-serif";
-        ctx.fillText("DIIN TECHNOLOGIES", 60, 265);
+        // Always load QR code on front side
+        if (cardData.qrUrl) {
+          promises.push(
+            new Promise((resolveImg) => {
+              const img = new Image();
+              img.crossOrigin = "anonymous";
+              img.onload = () => { qrImg = img; resolveImg(); };
+              img.onerror = () => resolveImg();
+              img.src = cardData.qrUrl;
+            })
+          );
+        }
 
-        // Line accent
-        ctx.fillStyle = "#f59e0b";
-        ctx.fillRect(60, 490, 930, 4);
+        Promise.all(promises).then(() => {
+          renderFront(avatarImg, logoImg, qrImg);
+        });
 
-        // Footer
-        ctx.fillStyle = cardData.template === "yellow" ? "#334155" : "#94a3b8";
-        ctx.font = "20px sans-serif";
-        ctx.fillText("POWERED BY MAGNIFAI OS • OFFICIAL DIGITAL PASS", 60, 535);
+        function renderFront(img, logoImg, qrImg) {
+          if (cardData.template === "gold") {
+            // Glow accents
+            ctx.fillStyle = "rgba(245, 158, 11, 0.03)";
+            ctx.beginPath();
+            ctx.arc(1050, 0, 350, 0, Math.PI * 2);
+            ctx.fill();
 
-        canvas.toBlob((blob) => resolve(blob), "image/png");
+            // LEFT SIDE - QR Code (Larger with yellow border & shadow glow)
+            if (qrImg) {
+              ctx.fillStyle = "#ffffff";
+              ctx.strokeStyle = "#eab308";
+              ctx.lineWidth = 6;
+              drawRoundedRect(ctx, 132, 120, 260, 260, 20);
+              ctx.fill();
+              ctx.stroke();
+
+              ctx.drawImage(qrImg, 152, 140, 220, 220);
+            }
+
+            // RIGHT SIDE - Profile photo or Initials (Larger with thick ring and outer glow ring)
+            const photoX = 787;
+            const photoY = 175;
+            const photoR = 90;
+
+            if (img) {
+              // Outer thick glow ring
+              ctx.strokeStyle = "rgba(234, 179, 8, 0.25)";
+              ctx.lineWidth = 20;
+              ctx.beginPath();
+              ctx.arc(photoX, photoY, photoR + 10, 0, Math.PI * 2);
+              ctx.stroke();
+
+              // Inner solid border ring
+              ctx.strokeStyle = "#fbbf24";
+              ctx.lineWidth = 6;
+              ctx.beginPath();
+              ctx.arc(photoX, photoY, photoR, 0, Math.PI * 2);
+              ctx.stroke();
+
+              ctx.save();
+              ctx.beginPath();
+              ctx.arc(photoX, photoY, photoR - 3, 0, Math.PI * 2);
+              ctx.clip();
+              drawCoverImage(ctx, img, photoX - photoR, photoY - photoR, photoR * 2, photoR * 2);
+              ctx.restore();
+            } else {
+              const circleGrad = ctx.createLinearGradient(photoX - photoR, photoY - photoR, photoX + photoR, photoY + photoR);
+              circleGrad.addColorStop(0, "#facc15");
+              circleGrad.addColorStop(1, "#f59e0b");
+              ctx.fillStyle = circleGrad;
+              ctx.beginPath();
+              ctx.arc(photoX, photoY, photoR, 0, Math.PI * 2);
+              ctx.fill();
+
+              ctx.strokeStyle = "#ffffff";
+              ctx.lineWidth = 4;
+              ctx.stroke();
+
+              const initial = cardData.userName ? cardData.userName.charAt(0).toUpperCase() : "V";
+              ctx.fillStyle = "#020617";
+              ctx.font = "bold 80px sans-serif";
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(initial, photoX, photoY);
+              ctx.textAlign = "left";
+              ctx.textBaseline = "alphabetic";
+            }
+
+            // RIGHT SIDE - Name and Designation right below the photo
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#eab308";
+            ctx.font = "bold 42px sans-serif";
+            ctx.fillText(cardData.userName, photoX, 360);
+
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 22px sans-serif";
+            ctx.fillText(cardData.designation, photoX, 405);
+
+            // Gradient line under designation
+            const lineGrad = ctx.createLinearGradient(photoX - 150, 435, photoX + 150, 435);
+            lineGrad.addColorStop(0, "rgba(234, 179, 8, 0)");
+            lineGrad.addColorStop(0.5, "rgba(234, 179, 8, 0.8)");
+            lineGrad.addColorStop(1, "rgba(234, 179, 8, 0)");
+            ctx.strokeStyle = lineGrad;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(photoX - 150, 435);
+            ctx.lineTo(photoX + 150, 435);
+            ctx.stroke();
+            ctx.textAlign = "left";
+
+            // Footer (centered, no ID, gold horizontal line)
+            ctx.strokeStyle = "rgba(234, 179, 8, 0.2)";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(40, 495);
+            ctx.lineTo(1010, 495);
+            ctx.stroke();
+
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 18px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("⚡ POWERED BY MAGNIFAI", 525, 545);
+            ctx.textAlign = "left";
+
+          } else if (cardData.template === "yellow") {
+            // Left Side Photo/Logo Container (vertical split)
+            ctx.fillStyle = "#0f172a";
+            ctx.fillRect(20, 20, 395, 560);
+
+            if (img) {
+              ctx.save();
+              ctx.beginPath();
+              ctx.rect(20, 20, 395, 560);
+              ctx.clip();
+              drawCoverImage(ctx, img, 20, 20, 395, 560);
+              ctx.restore();
+            } else {
+              ctx.fillStyle = "#fbbf24";
+              ctx.fillRect(20, 20, 395, 560);
+
+              const initial = cardData.userName ? cardData.userName.charAt(0).toUpperCase() : "M";
+              ctx.fillStyle = "#0f172a";
+              ctx.font = "bold 150px sans-serif";
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(initial, 217, 300);
+              ctx.textAlign = "left";
+              ctx.textBaseline = "alphabetic";
+            }
+
+            // Right side crisp white background
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(415, 20, 615, 470);
+
+            // User Name
+            ctx.fillStyle = "#0f172a";
+            ctx.font = "bold 56px sans-serif";
+            ctx.fillText(cardData.userName, 460, 110);
+
+            // Designation badge
+            ctx.fillStyle = "#eab308";
+            ctx.font = "bold 20px sans-serif";
+            const textW = ctx.measureText(cardData.designation).width + 40;
+            drawRoundedRect(ctx, 460, 140, textW, 42, 6);
+            ctx.fill();
+
+            ctx.fillStyle = "#0f172a";
+            ctx.fillText(cardData.designation, 480, 168);
+
+            // Center QR Code
+            if (qrImg) {
+              ctx.fillStyle = "#ffffff";
+              ctx.strokeStyle = "#cbd5e1";
+              ctx.lineWidth = 2;
+              drawRoundedRect(ctx, 632, 240, 180, 180, 15);
+              ctx.fill();
+              ctx.stroke();
+
+              ctx.drawImage(qrImg, 647, 255, 150, 150);
+            }
+
+            // Footer block (centered, no ID)
+            ctx.fillStyle = "#0f172a";
+            ctx.fillRect(415, 490, 615, 90);
+
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#facc15";
+            ctx.font = "bold 18px sans-serif";
+            ctx.fillText("⚡ POWERED BY MAGNIFAI", 722, 545);
+            ctx.textAlign = "left";
+
+            // Border
+            ctx.strokeStyle = "#eab308";
+            ctx.lineWidth = 10;
+            ctx.strokeRect(15, 15, 1020, 570);
+
+          } else { // template === "wave" -> Restyled layout: QR Code on Front!
+            // Draw background (crisp white)
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(20, 20, 1010, 560);
+
+            // Left Side Photo/Logo portrait (split)
+            ctx.fillStyle = "#020617";
+            ctx.fillRect(20, 20, 420, 560);
+
+            if (img) {
+              ctx.save();
+              ctx.beginPath();
+              ctx.rect(20, 20, 420, 560);
+              ctx.clip();
+              drawCoverImage(ctx, img, 20, 20, 420, 560);
+              ctx.restore();
+            } else {
+              const avatarGrad = ctx.createLinearGradient(20, 20, 440, 580);
+              avatarGrad.addColorStop(0, "#fbbf24");
+              avatarGrad.addColorStop(1, "#ca8a04");
+              ctx.fillStyle = avatarGrad;
+              ctx.fillRect(20, 20, 420, 560);
+
+              const initial = cardData.userName ? cardData.userName.charAt(0).toUpperCase() : "V";
+              ctx.fillStyle = "#0f172a";
+              ctx.font = "bold 150px sans-serif";
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(initial, 230, 300);
+              ctx.textAlign = "left";
+              ctx.textBaseline = "alphabetic";
+            }
+
+            // Draw curved gold border separator outline
+            ctx.strokeStyle = "#eab308";
+            ctx.lineWidth = 12;
+            ctx.beginPath();
+            ctx.moveTo(375, 20);
+            ctx.quadraticCurveTo(435, 300, 375, 580);
+            ctx.stroke();
+
+            // Draw crisp white background overlay (covering the right side completely, starting from the curve)
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.moveTo(375, 20);
+            ctx.quadraticCurveTo(435, 300, 375, 580);
+            ctx.lineTo(1030, 580);
+            ctx.lineTo(1030, 20);
+            ctx.closePath();
+            ctx.fill();
+
+            // Right side - Top Logo (shifted down and made larger)
+            if (logoImg) {
+              const lw = logoImg.width;
+              const lh = logoImg.height;
+              const ratio = Math.min(280 / lw, 110 / lh);
+              const dw = lw * ratio;
+              const dh = lh * ratio;
+              ctx.drawImage(logoImg, 725 - dw / 2, 105 - dh / 2, dw, dh);
+            } else {
+              ctx.fillStyle = "#eab308";
+              ctx.font = "bold 24px monospace";
+              ctx.textAlign = "center";
+              ctx.fillText("★ MAGNIFAI ★", 725, 110);
+              ctx.textAlign = "left";
+            }
+
+            // Right side - Middle: Name and Designation Badge
+            ctx.strokeStyle = "#fcd34d";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(600, 238);
+            ctx.lineTo(650, 238);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(800, 238);
+            ctx.lineTo(850, 238);
+            ctx.stroke();
+
+            ctx.fillStyle = "#d97706";
+            ctx.font = "bold italic 22px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("Hello I am", 725, 245);
+
+            // User Name
+            ctx.fillStyle = "#0f172a";
+            ctx.font = "bold 48px sans-serif";
+            ctx.fillText(cardData.userName, 725, 315);
+
+            // Designation Badge
+            const badgeText = "• " + cardData.designation.toUpperCase() + " •";
+            ctx.font = "bold 20px sans-serif";
+            const textWidth = ctx.measureText(badgeText).width;
+            const badgeW = textWidth + 40;
+            const badgeH = 40;
+            const badgeX = 725 - badgeW / 2;
+            const badgeY = 355;
+
+            ctx.fillStyle = "#fef9c3";
+            ctx.strokeStyle = "rgba(234, 179, 8, 0.4)";
+            ctx.lineWidth = 2;
+            drawRoundedRect(ctx, badgeX, badgeY, badgeW, badgeH, 20);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = "#ca8a04";
+            ctx.fillText(badgeText, 725, 382);
+
+            // Right side - Bottom: QR Code scanner container and image (moved down)
+            if (qrImg) {
+              ctx.fillStyle = "#ffffff";
+              ctx.strokeStyle = "#eab308";
+              ctx.lineWidth = 4;
+              drawRoundedRect(ctx, 640, 420, 170, 170, 15);
+              ctx.fill();
+              ctx.stroke();
+
+              ctx.drawImage(qrImg, 655, 435, 140, 140);
+            }
+
+            // Reset alignments
+            ctx.textAlign = "left";
+            ctx.textBaseline = "alphabetic";
+
+            // Border
+            ctx.strokeStyle = "#eab308";
+            ctx.lineWidth = 10;
+            ctx.strokeRect(15, 15, 1020, 570);
+          }
+
+          canvas.toBlob((blob) => resolve(blob), "image/png");
+        }
+
       } else {
-        // Back Side with QR Code
-        ctx.fillStyle = cardData.template === "yellow" ? "#0f172a" : "#ffffff";
-        ctx.font = "bold 40px sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText("SCAN TO CHAT & VOICE CALL INSTANT", 525, 90);
+        // Back Side
+        const promises = [];
+        let avatarImg = null;
+        let logoImg = null;
+        let qrImg = null;
 
-        const qrImg = new Image();
-        qrImg.crossOrigin = "anonymous";
-        qrImg.onload = () => {
-          ctx.drawImage(qrImg, 385, 130, 280, 280);
+        if (cardData.authorImgUrl) {
+          promises.push(
+            new Promise((resolveImg) => {
+              const img = new Image();
+              img.crossOrigin = "anonymous";
+              img.onload = () => { avatarImg = img; resolveImg(); };
+              img.onerror = () => resolveImg();
+              img.src = cardData.authorImgUrl;
+            })
+          );
+        }
 
-          ctx.fillStyle = cardData.template === "yellow" ? "#1e293b" : "#cbd5e1";
-          ctx.font = "20px sans-serif";
-          ctx.fillText(cardData.chatLink, 525, 470);
+        if (cardData.logoImgUrl) {
+          promises.push(
+            new Promise((resolveImg) => {
+              const img = new Image();
+              img.crossOrigin = "anonymous";
+              img.onload = () => { logoImg = img; resolveImg(); };
+              img.onerror = () => resolveImg();
+              img.src = cardData.logoImgUrl;
+            })
+          );
+        }
 
-          ctx.fillStyle = "#f59e0b";
-          ctx.font = "bold 20px sans-serif";
-          ctx.fillText("POWERED BY MAGNIFAI OS", 525, 525);
+        if (cardData.template !== "wave" && cardData.qrUrl) {
+          promises.push(
+            new Promise((resolveImg) => {
+              const img = new Image();
+              img.crossOrigin = "anonymous";
+              img.onload = () => { qrImg = img; resolveImg(); };
+              img.onerror = () => resolveImg();
+              img.src = cardData.qrUrl;
+            })
+          );
+        }
+
+        Promise.all(promises).then(() => {
+          renderBack(avatarImg, logoImg, qrImg);
+        });
+
+        function renderBack(img, logoImg, qrImg) {
+          if (cardData.template === "wave") {
+            // Draw background (crisp white)
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, 1050, 600);
+
+            // Top Logo centered (shifted down and made larger)
+            if (logoImg) {
+              const lw = logoImg.width;
+              const lh = logoImg.height;
+              const ratio = Math.min(280 / lw, 110 / lh);
+              const dw = lw * ratio;
+              const dh = lh * ratio;
+              ctx.drawImage(logoImg, 525 - dw / 2, 105 - dh / 2, dw, dh);
+            } else {
+              ctx.fillStyle = "#eab308";
+              ctx.font = "bold 24px monospace";
+              ctx.textAlign = "center";
+              ctx.fillText("★ MAGNIFAI ★", 525, 110);
+              ctx.textAlign = "left";
+            }
+
+            // Middle Info (Name and Designation) centered (shifted down)
+            ctx.strokeStyle = "#fcd34d";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(400, 238);
+            ctx.lineTo(450, 238);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(600, 238);
+            ctx.lineTo(650, 238);
+            ctx.stroke();
+
+            ctx.fillStyle = "#d97706";
+            ctx.font = "bold italic 22px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("Hello I am", 525, 245);
+
+            // User Name
+            ctx.fillStyle = "#0f172a";
+            ctx.font = "bold 48px sans-serif";
+            ctx.fillText(cardData.userName, 525, 315);
+
+            // Designation Badge
+            const badgeText = "• " + cardData.designation.toUpperCase() + " •";
+            ctx.font = "bold 20px sans-serif";
+            const textWidth = ctx.measureText(badgeText).width;
+            const badgeW = textWidth + 40;
+            const badgeH = 40;
+            const badgeX = 525 - badgeW / 2;
+            const badgeY = 355;
+
+            ctx.fillStyle = "#fef9c3";
+            ctx.strokeStyle = "rgba(234, 179, 8, 0.4)";
+            ctx.lineWidth = 2;
+            drawRoundedRect(ctx, badgeX, badgeY, badgeW, badgeH, 20);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = "#ca8a04";
+            ctx.fillText(badgeText, 525, 382);
+
+            // Footer Text
+            ctx.fillStyle = "#f59e0b";
+            ctx.font = "bold 18px sans-serif";
+            ctx.fillText("⚡ POWERED BY MAGNIFAI", 525, 535);
+
+            // Reset alignments
+            ctx.textAlign = "left";
+            ctx.textBaseline = "alphabetic";
+
+            // Border
+            ctx.strokeStyle = "#eab308";
+            ctx.lineWidth = 10;
+            ctx.strokeRect(15, 15, 1020, 570);
+
+          } else {
+            // Draw background based on template (Gold/Yellow)
+            ctx.fillStyle = "#020617";
+            ctx.fillRect(0, 0, 1050, 600);
+            
+            if (cardData.template === "gold") {
+              ctx.strokeStyle = "#f59e0b";
+              ctx.lineWidth = 10;
+              ctx.strokeRect(15, 15, 1020, 570);
+
+              // Name (shifted up)
+              ctx.fillStyle = "#fde047";
+              ctx.font = "bold 48px sans-serif";
+              ctx.fillText(cardData.userName, 525, 200);
+
+              // Title (shifted up)
+              ctx.fillStyle = "#facc15";
+              ctx.font = "bold 26px sans-serif";
+              ctx.fillText(cardData.designation, 525, 270);
+
+              // Divider
+              ctx.strokeStyle = "#1e293b";
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.moveTo(60, 490);
+              ctx.lineTo(990, 490);
+              ctx.stroke();
+
+              // Footer Text
+              ctx.fillStyle = "#fbbf24";
+              ctx.font = "bold 18px sans-serif";
+              ctx.fillText("⚡ POWERED BY MAGNIFAI", 525, 545);
+
+            } else { // yellow template
+              ctx.strokeStyle = "#eab308";
+              ctx.lineWidth = 10;
+              ctx.strokeRect(15, 15, 1020, 570);
+
+              // ★ MAGNIFAI ★ Emblem
+              ctx.fillStyle = "#eab308";
+              ctx.font = "bold 24px monospace";
+              ctx.textAlign = "center";
+              ctx.fillText("★ MAGNIFAI ★", 525, 120);
+
+              // Name
+              ctx.fillStyle = "#ffffff";
+              ctx.font = "bold 48px sans-serif";
+              ctx.fillText(cardData.userName, 525, 245);
+
+              // Designation Badge
+              const badgeText = "• " + cardData.designation.toUpperCase() + " •";
+              ctx.font = "bold 20px sans-serif";
+              const textWidth = ctx.measureText(badgeText).width;
+              const badgeW = textWidth + 40;
+              const badgeH = 40;
+              const badgeX = 525 - badgeW / 2;
+              const badgeY = 295;
+
+              ctx.fillStyle = "#fef9c3";
+              ctx.strokeStyle = "rgba(234, 179, 8, 0.4)";
+              ctx.lineWidth = 2;
+              drawRoundedRect(ctx, badgeX, badgeY, badgeW, badgeH, 20);
+              ctx.fill();
+              ctx.stroke();
+
+              ctx.fillStyle = "#ca8a04";
+              ctx.fillText(badgeText, 525, 322);
+
+              // Footer Text
+              ctx.fillStyle = "#facc15";
+              ctx.font = "bold 18px sans-serif";
+              ctx.fillText("⚡ POWERED BY MAGNIFAI", 525, 535);
+            }
+          }
 
           canvas.toBlob((blob) => resolve(blob), "image/png");
-        };
-        qrImg.onerror = () => {
-          ctx.fillStyle = cardData.template === "yellow" ? "#1e293b" : "#cbd5e1";
-          ctx.font = "20px sans-serif";
-          ctx.fillText(cardData.chatLink, 525, 300);
-
-          canvas.toBlob((blob) => resolve(blob), "image/png");
-        };
-        qrImg.src = cardData.qrUrl;
+        }
       }
     });
   }
@@ -394,9 +944,28 @@ export function AppAiAgent() {
   async function handleShareCard(agentId) {
     const userName = user?.name || "CEO";
     const targetAgentId = agentId || selectedAgentId;
-    const cardUrl = `https://test.3rdai.co/agent-chat?id=${targetAgentId}`;
+    const targetAgent = agents.find(a => (a._id === targetAgentId || a.agent_id === targetAgentId || a.id === targetAgentId));
+    const cardUrl = getAgentChatLink(targetAgentId, targetAgent?.customization);
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(cardUrl)}`;
-    const cardData = { userName, template: cardTemplate, qrUrl, chatLink: cardUrl };
+    
+    const authorImg = targetAgent?.customization?.author_image_url || targetAgent?.customization?.logo_url;
+    const authorImgUrl = authorImg ? mediaUrl(authorImg) : "";
+    const brandLogo = targetAgent?.customization?.logo_url || custLogoUrl;
+    const logoImgUrl = brandLogo ? mediaUrl(brandLogo) : "";
+    
+    const cardData = {
+      userName,
+      template: cardTemplate,
+      qrUrl,
+      chatLink: cardUrl,
+      authorImgUrl,
+      logoImgUrl,
+      agentName: targetAgent?.name || "AI Smart Agent",
+      agentCategory: targetAgent?.category || "Voice & Chat Assistant",
+      agentId: targetAgentId,
+      designation: user?.designation || "CEO & Founder",
+      companyName: user?.company || "DIIN TECHNOLOGIES",
+    };
 
     try {
       // 1. Generate Front & Back Blobs
@@ -454,11 +1023,28 @@ export function AppAiAgent() {
 
   async function handleDownloadCard() {
     const userName = user?.name || "CEO";
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(
-      `https://test.3rdai.co/agent-chat?id=${selectedAgentId}`
-    )}`;
-    const chatLink = `https://test.3rdai.co/agent-chat?id=${selectedAgentId}`;
-    const cardData = { userName, template: cardTemplate, qrUrl, chatLink };
+    const targetAgent = selectedAgent || agents.find(a => (a._id === selectedAgentId || a.agent_id === selectedAgentId || a.id === selectedAgentId));
+    const chatLink = getAgentChatLink(selectedAgentId, targetAgent?.customization);
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(chatLink)}`;
+    
+    const authorImg = targetAgent?.customization?.author_image_url || targetAgent?.customization?.logo_url;
+    const authorImgUrl = authorImg ? mediaUrl(authorImg) : "";
+    const brandLogo = targetAgent?.customization?.logo_url || custLogoUrl;
+    const logoImgUrl = brandLogo ? mediaUrl(brandLogo) : "";
+    
+    const cardData = {
+      userName,
+      template: cardTemplate,
+      qrUrl,
+      chatLink,
+      authorImgUrl,
+      logoImgUrl,
+      agentName: targetAgent?.name || "AI Smart Agent",
+      agentCategory: targetAgent?.category || "Voice & Chat Assistant",
+      agentId: selectedAgentId,
+      designation: user?.designation || "CEO & Founder",
+      companyName: user?.company || "DIIN TECHNOLOGIES",
+    };
 
     await downloadCardSide("front", cardData);
 
@@ -586,15 +1172,18 @@ export function AppAiAgent() {
   const audioRef = useRef(null);
   const recognitionRef = useRef(null);
 
-  // Load all agents (excluding Personal Assistant / Root_assistant)
+  // Load all agents
   async function loadAgents(selectFirst = false) {
     setLoading(true);
     try {
       const data = await api("/api/agents", { token });
-      const list = (data || []).filter(a => {
-        const nameLower = (a.name || "").toLowerCase();
-        const catLower = (a.category || "").toLowerCase();
-        return !nameLower.includes("personal assistant") && catLower !== "root_assistant";
+      const rawList = data || [];
+      const list = rawList.filter(ag => {
+        if (mode === "personal") {
+          return ag.category === "root_assistant";
+        } else {
+          return ag.category !== "root_assistant";
+        }
       });
       setAgents(list);
       if (list.length > 0) {
@@ -604,7 +1193,7 @@ export function AppAiAgent() {
       } else {
         setSelectedAgentId("");
         setSelectedAgent(null);
-        enterCreateMode();
+        setViewMode("list");
       }
     } catch (e) {
       toastFromError(e, "Failed to load agents");
@@ -725,7 +1314,7 @@ export function AppAiAgent() {
 
   useEffect(() => {
     loadAgents(true);
-  }, [token]);
+  }, [token, mode]);
 
   useEffect(() => {
     if (selectedAgentId) {
@@ -1229,17 +1818,105 @@ export function AppAiAgent() {
   return (
     <div className="flex flex-col h-full bg-slate-50 min-h-[calc(100dvh-3.5rem)] text-slate-800 p-3 sm:p-4 md:p-6">
 
-      {viewMode === "dashboard" ? (
-        /* ==================== VIEW 1: DASHBOARD MODE ==================== */
+      {viewMode === "list" ? (
+        /* ==================== VIEW 1: LIST MODE ==================== */
         <div>
           {/* Header */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between border-b border-slate-200 pb-4 mb-4 sm:mb-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between border-b border-slate-200 pb-4 mb-6">
             <div>
               <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2 text-indigo-900">
-                <LuBot className="h-6 sm:h-7 w-6 sm:w-7 text-indigo-600" />
-                AI Assistant / Agent
+                <LuBot className="h-6 sm:h-7 w-6 sm:w-7 text-indigo-600 animate-pulse" />
+                {mode === "personal" ? "Personal AI Assistant" : "AI Assistant / Agents"}
               </h1>
-              <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium">Create, customize, and manage your business AI agents.</p>
+              <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium">
+                {mode === "personal" 
+                  ? "Your root Personal AI Copilot with system-wide controls." 
+                  : "Select or create an AI Agent for your business."}
+              </p>
+            </div>
+          </div>
+
+          {/* Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {agents.map((agent) => (
+              <div
+                key={agent.agent_id}
+                onClick={() => {
+                  setSelectedAgentId(agent.agent_id);
+                  setViewMode("dashboard");
+                }}
+                className="border border-slate-200 bg-white rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-indigo-300 transition cursor-pointer flex flex-col justify-between min-h-[160px]"
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2 text-indigo-900 font-extrabold text-sm sm:text-base">
+                    <div className="flex items-center gap-2">
+                      <LuBot className="h-5 w-5 text-indigo-600" />
+                      {agent.name}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAgentDelete(agent.agent_id);
+                      }}
+                      className="text-red-500 hover:text-red-750 hover:bg-red-50 p-1.5 rounded-lg transition cursor-pointer"
+                      title="Delete Agent"
+                    >
+                      <LuTrash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
+                    {agent.description || "No description provided."}
+                  </p>
+                </div>
+                <div className="flex justify-between items-center pt-4 border-t border-slate-50 mt-4">
+                  <span className="text-[10px] text-indigo-700 bg-indigo-50 font-bold px-2 py-0.5 rounded capitalize">
+                    {agent.category || "Voice & Chat"}
+                  </span>
+                  <span className="text-xs text-indigo-600 font-bold hover:underline">
+                    Manage Agent &rarr;
+                  </span>
+                </div>
+              </div>
+            ))}
+
+            {mode !== "personal" && (
+              /* Create New Agent Card */
+              <div
+                onClick={enterCreateMode}
+                className="border-2 border-dashed border-slate-300 bg-slate-50/50 rounded-2xl p-6 hover:bg-slate-50 hover:border-indigo-400 transition cursor-pointer flex flex-col items-center justify-center min-h-[160px] text-center group"
+              >
+                <div className="h-10 w-10 rounded-full bg-slate-200 group-hover:bg-indigo-50 flex items-center justify-center text-slate-600 group-hover:text-indigo-600 transition mb-3">
+                  <LuPlus className="h-5 w-5" />
+                </div>
+                <span className="font-extrabold text-slate-800 text-xs sm:text-sm group-hover:text-indigo-600 transition">
+                  + Create New Agent
+                </span>
+                <p className="text-[10px] text-slate-400 font-semibold mt-1">Configure another AI chatbot</p>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : viewMode === "dashboard" ? (
+        /* ==================== VIEW 2: DASHBOARD MODE ==================== */
+        <div>
+          {/* Header */}
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between border-b border-slate-200 pb-4 mb-4 sm:mb-6 gap-4">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setViewMode("list")}
+                className="flex items-center gap-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-bold text-xs py-2 px-3 rounded-lg shadow-sm transition cursor-pointer shrink-0"
+              >
+                <LuArrowLeft className="h-4 w-4" /> Back to Agents
+              </button>
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2 text-indigo-900">
+                  <LuBot className="h-6 sm:h-7 w-6 sm:w-7 text-indigo-600" />
+                  {selectedAgent?.name || "AI Assistant / Agent"}
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium">Create, customize, and manage your business AI agents.</p>
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-3 md:mt-0">
@@ -1608,11 +2285,10 @@ export function AppAiAgent() {
                                                       handleSessionSelect(s);
                                                       setSessionDropOpen(false);
                                                     }}
-                                                    className={`w-full text-left px-3.5 py-2 text-xs font-semibold transition cursor-pointer flex items-center justify-between ${
-                                                      isActive
+                                                    className={`w-full text-left px-3.5 py-2 text-xs font-semibold transition cursor-pointer flex items-center justify-between ${isActive
                                                         ? "bg-indigo-50 text-indigo-700 font-extrabold"
                                                         : "text-slate-700 hover:bg-slate-50"
-                                                    }`}
+                                                      }`}
                                                   >
                                                     <span>Session {contactSessions.length - idx}</span>
                                                     <span className="text-[10px] text-slate-400 font-medium">
@@ -2008,22 +2684,20 @@ export function AppAiAgent() {
                                         <button
                                           type="button"
                                           onClick={() => setAuditSubTab("feedback")}
-                                          className={`flex-1 py-1 rounded-md font-bold text-center text-xs transition cursor-pointer ${
-                                            auditSubTab === "feedback"
+                                          className={`flex-1 py-1 rounded-md font-bold text-center text-xs transition cursor-pointer ${auditSubTab === "feedback"
                                               ? "bg-white text-indigo-700 shadow-2xs border border-slate-200/40"
                                               : "text-slate-500 hover:text-slate-800"
-                                          }`}
+                                            }`}
                                         >
                                           👍 Star Feedback
                                         </button>
                                         <button
                                           type="button"
                                           onClick={() => setAuditSubTab("report")}
-                                          className={`flex-1 py-1 rounded-md font-bold text-center text-xs transition cursor-pointer ${
-                                            auditSubTab === "report"
+                                          className={`flex-1 py-1 rounded-md font-bold text-center text-xs transition cursor-pointer ${auditSubTab === "report"
                                               ? "bg-white text-rose-700 shadow-2xs border border-slate-200/40"
                                               : "text-slate-500 hover:text-slate-800"
-                                          }`}
+                                            }`}
                                         >
                                           🚨 Report Issue
                                         </button>
@@ -2045,11 +2719,10 @@ export function AppAiAgent() {
                                                     className="focus:outline-none transition cursor-pointer p-0.5"
                                                   >
                                                     <LuStar
-                                                      className={`h-6 w-6 ${
-                                                        isSelected
+                                                      className={`h-6 w-6 ${isSelected
                                                           ? "text-amber-500 fill-amber-400"
                                                           : "text-slate-300 hover:text-amber-400"
-                                                      }`}
+                                                        }`}
                                                     />
                                                   </button>
                                                 );
@@ -2380,10 +3053,8 @@ export function AppAiAgent() {
                           {(() => {
                             const currentAgent = selectedAgent || agents.find(a => (a._id === selectedAgentId || a.agent_id === selectedAgentId || a.id === selectedAgentId));
                             const authorImg = currentAgent?.customization?.author_image_url || currentAgent?.customization?.logo_url;
-                            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
-                              `https://test.3rdai.co/agent-chat?id=${selectedAgentId}`
-                            )}`;
-                            const chatLink = `https://test.3rdai.co/agent-chat?id=${selectedAgentId}`;
+                            const chatLink = getAgentChatLink(selectedAgentId, currentAgent?.customization);
+                            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(chatLink)}`;
 
                             return (
                               <div className="space-y-3">
@@ -2397,65 +3068,68 @@ export function AppAiAgent() {
                                 >
                                   {/* TEMPLATE 1: ROYAL DARK GOLD GEOMETRIC PASS (Reference Image 2 Style) */}
                                   {cardTemplate === "gold" && (
-                                    <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950/90 text-white min-h-[230px] p-0 relative flex flex-col justify-between border-2 border-amber-500/50 shadow-2xl overflow-hidden">
+                                    <div className="bg-gradient-to-br from-slate-950 via-[#0f172a] to-[#1c0d02] text-white min-h-[230px] p-0 relative flex flex-col justify-between border-[3px] border-amber-500 shadow-2xl overflow-hidden rounded-2xl">
                                       {/* Polygons Glow Accents */}
-                                      <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl pointer-events-none"></div>
+                                      <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-2xl pointer-events-none"></div>
 
                                       {cardSide === "front" ? (
-                                        /* FRONT SIDE: TOP BANNER PASS LAYOUT */
-                                        <div className="flex flex-col h-full min-h-[230px] justify-between p-4 z-10 space-y-3">
-                                          {/* TOP BANNER: LEFT NAME + RIGHT GOLD RING PHOTO */}
-                                          <div className="flex justify-between items-start">
-                                            <div className="space-y-0.5 text-left">
-                                              <span className="text-[8px] font-black uppercase tracking-widest bg-gradient-to-r from-amber-400 to-amber-200 text-slate-950 px-2 py-0.5 rounded-full inline-block shadow-2xs">
-                                                Executive Pass
-                                              </span>
-                                              <h2 className="font-black text-base text-amber-300 tracking-wide leading-tight pt-1">
-                                                {user?.name || "Vijay Kumar Singh"}
-                                              </h2>
-                                              <p className="text-[10px] text-amber-400 font-extrabold uppercase tracking-wider">
-                                                CEO & FOUNDER
-                                              </p>
-                                            </div>
-
-                                            {/* RIGHT TOP: GOLD EMBLEM RING PHOTO */}
-                                            {authorImg ? (
-                                              <img src={mediaUrl(authorImg)} alt="CEO Avatar" className="h-16 w-16 rounded-full object-cover border-2 border-amber-400 shadow-2xl ring-4 ring-amber-500/30" />
-                                            ) : (
-                                              <div className="h-16 w-16 rounded-full bg-gradient-to-tr from-amber-400 to-amber-300 text-slate-950 font-black flex items-center justify-center text-xl border-2 border-white shadow-2xl">
-                                                {user?.name ? user.name.charAt(0).toUpperCase() : "V"}
+                                        /* FRONT SIDE: LEFT QR WITH BORDER/GLOW + RIGHT PHOTO/NAME/DESIGNATION */
+                                        <div className="flex flex-col h-full min-h-[230px] justify-between p-4 z-10">
+                                          <div className="flex justify-between items-center flex-1">
+                                            {/* LEFT SIDE: QR CODE CONTAINER (Yellow border & golden glow) */}
+                                            <div className="flex flex-col items-start justify-center pl-4">
+                                              <div className="bg-white p-1.5 rounded-2xl border-[3px] border-amber-400 shadow-[0_0_15px_rgba(234,179,8,0.4)]">
+                                                <img src={qrUrl} alt="QR Code" className="h-[90px] w-[90px] object-contain" />
                                               </div>
-                                            )}
-                                          </div>
-
-                                          {/* MIDDLE AGENT DETAILS */}
-                                          <div className="border-t border-amber-500/40 pt-2 flex justify-between items-end text-left">
-                                            <div>
-                                              <span className="text-[9px] text-amber-400 font-bold block">AGENT ASSISTANT</span>
-                                              <span className="text-xs font-extrabold text-white">{currentAgent?.name || "AI Smart Agent"}</span>
-                                              <span className="text-[9px] text-slate-400 block italic">{currentAgent?.category || "Voice & Chat Assistant"}</span>
                                             </div>
-                                            <span className="text-[8px] font-mono bg-amber-400/20 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">PASS FRONT</span>
+
+                                            {/* RIGHT SIDE: PHOTO + NAME + DESIGNATION */}
+                                            <div className="flex flex-col items-center text-center pr-4 space-y-1.5">
+                                              {/* GOLD EMBLEM RING PHOTO WITH RING & GLOW */}
+                                              {authorImg ? (
+                                                <img src={mediaUrl(authorImg)} alt="CEO Avatar" className="h-20 w-20 rounded-full object-cover border-[3px] border-amber-400 shadow-[0_0_20px_rgba(234,179,8,0.5)] ring-4 ring-amber-500/20" />
+                                              ) : (
+                                                <div className="h-20 w-20 rounded-full bg-gradient-to-tr from-amber-400 to-amber-300 text-slate-950 font-black flex items-center justify-center text-2xl border-2 border-white shadow-2xl">
+                                                  {user?.name ? user.name.charAt(0).toUpperCase() : "V"}
+                                                </div>
+                                              )}
+                                              {/* NAME & DESIGNATION RIGHT BELOW IT */}
+                                              <div className="space-y-0.5">
+                                                <h2 className="font-black text-sm text-amber-400 tracking-wide max-w-[170px] truncate leading-tight">
+                                                  {user?.name || "Vijay Kumar Singh"}
+                                                </h2>
+                                                <p className="text-[9px] text-white font-extrabold uppercase tracking-wider max-w-[170px] truncate">
+                                                  {user?.designation || "CEO & FOUNDER"}
+                                                </p>
+                                                {/* Gradient line under designation */}
+                                                <div className="w-28 h-[1px] bg-gradient-to-r from-transparent via-amber-500 to-transparent mx-auto mt-2 opacity-80 shadow-[0_1px_4px_rgba(234,179,8,0.4)]"></div>
+                                              </div>
+                                            </div>
                                           </div>
 
                                           {/* BOTTOM FOOTER */}
-                                          <div className="border-t border-slate-800 pt-1.5 flex justify-between items-center text-[8px] text-slate-400 font-bold">
-                                            <span className="text-amber-400 font-extrabold">⚡ POWERED BY MAGNIFAI OS</span>
-                                            <span>ID: {selectedAgentId}</span>
+                                          <div className="border-t border-amber-500/20 pt-2 flex justify-center items-center text-[8px] text-slate-400 font-bold w-full">
+                                            <span className="text-white/90 tracking-widest font-black flex items-center justify-center gap-1.5 uppercase">
+                                              <span className="text-amber-400">⚡</span> POWERED BY MAGNIFAI
+                                            </span>
                                           </div>
                                         </div>
                                       ) : (
                                         /* BACK SIDE */
-                                        <div className="flex flex-col items-center justify-between min-h-[230px] p-4 bg-slate-950">
-                                          <div className="flex-1 flex flex-col items-center justify-center space-y-2">
-                                            <div className="bg-white p-2 rounded-xl border-2 border-amber-400 shadow-lg">
-                                              <img src={qrUrl} alt="QR Code" className="h-28 w-28 object-contain" />
-                                            </div>
-                                            <p className="text-[10px] font-extrabold text-amber-400 uppercase tracking-wider">SCAN TO CHAT & VOICE CALL INSTANT</p>
-                                            <p className="text-[8px] text-slate-400 truncate max-w-[220px] font-mono">{chatLink}</p>
+                                        <div className="flex flex-col items-center justify-between min-h-[230px] p-4 bg-slate-950 text-center border-[3px] border-amber-500 rounded-2xl bg-gradient-to-br from-slate-950 via-[#0f172a] to-[#1c0d02]">
+                                          <div className="flex-1 flex flex-col items-center justify-center space-y-3">
+                                            <h2 className="font-black text-lg text-amber-400 tracking-wide leading-tight truncate max-w-[240px]">
+                                              {user?.name || "Vijay Kumar Singh"}
+                                            </h2>
+                                            <p className="text-xs text-white font-extrabold uppercase tracking-wider block mt-1 truncate max-w-[240px]">
+                                              {user?.designation || "CEO & FOUNDER"}
+                                            </p>
+                                            <div className="w-36 h-[1.5px] bg-gradient-to-r from-transparent via-amber-500 to-transparent mx-auto mt-3 opacity-80"></div>
                                           </div>
-                                          <div className="w-full text-center border-t border-slate-800 pt-1 text-[8px] font-bold text-amber-400">
-                                            ⚡ POWERED BY MAGNIFAI OS
+                                          <div className="border-t border-amber-500/20 pt-2 flex justify-center items-center text-[8px] text-slate-400 font-bold w-full">
+                                            <span className="text-white/90 tracking-widest font-black flex items-center justify-center gap-1.5 uppercase">
+                                              <span className="text-amber-400">⚡</span> POWERED BY MAGNIFAI
+                                            </span>
                                           </div>
                                         </div>
                                       )}
@@ -2480,35 +3154,40 @@ export function AppAiAgent() {
                                               )}
                                             </div>
                                             {/* RIGHT 7 COLUMNS: CRISP WHITE DETAILS */}
-                                            <div className="col-span-7 bg-white p-4 text-left flex flex-col justify-between">
-                                              <div className="space-y-1">
+                                            <div className="col-span-7 bg-white p-4 text-center flex flex-col justify-between items-center">
+                                              <div className="space-y-1 text-left w-full">
                                                 <h2 className="font-extrabold text-base text-slate-900 uppercase tracking-tight">{user?.name || "Vijay Kumar Singh"}</h2>
                                                 <span className="bg-amber-400 text-slate-950 px-2 py-0.5 rounded font-black text-[9px] uppercase tracking-wider inline-block">
-                                                  CEO & FOUNDER
+                                                  {user?.designation || "CEO & FOUNDER"}
                                                 </span>
                                               </div>
-                                              <div className="space-y-0.5 border-t border-slate-200 pt-2 text-[9px]">
-                                                <p className="font-extrabold text-slate-800">🤖 AGENT: {currentAgent?.name || "AI Assistant"}</p>
-                                                <p className="text-slate-500 italic">{currentAgent?.category || "Voice & Chat"}</p>
+                                              {/* Center QR Code */}
+                                              <div className="flex justify-center items-center py-1">
+                                                <div className="bg-white p-1 rounded-lg border border-amber-400 shadow-3xs">
+                                                  <img src={qrUrl} alt="QR Code" className="h-[64px] w-[64px] object-contain" />
+                                                </div>
                                               </div>
                                             </div>
                                           </div>
                                           {/* FOOTER */}
-                                          <div className="bg-slate-950 text-slate-300 px-4 py-1.5 text-[9px] flex justify-between items-center font-bold border-t border-amber-400">
-                                            <span className="text-amber-400 font-extrabold">⚡ POWERED BY MAGNIFAI OS</span>
-                                            <span className="font-mono text-[8px] text-slate-400">ID: {selectedAgentId}</span>
+                                          <div className="bg-slate-950 text-slate-300 px-4 py-1.5 text-[9px] flex justify-center items-center font-bold border-t border-amber-400">
+                                            <span className="text-amber-400 font-extrabold text-center w-full">⚡ POWERED BY MAGNIFAI</span>
                                           </div>
                                         </div>
                                       ) : (
                                         /* BACK SIDE */
-                                        <div className="p-4 flex flex-col items-center justify-between min-h-[230px] bg-slate-950 text-white">
-                                          <div className="flex-1 flex flex-col items-center justify-center space-y-2">
-                                            <div className="bg-white p-2 rounded-xl border-2 border-amber-400 shadow-md">
-                                              <img src={qrUrl} alt="QR Code" className="h-28 w-28 object-contain" />
+                                        <div className="p-4 flex flex-col justify-between min-h-[230px] bg-slate-950 text-white text-center">
+                                          <div className="flex-1 flex flex-col items-center justify-center space-y-3">
+                                            <span className="text-[12px] font-black text-amber-400 uppercase tracking-widest">★ MAGNIFAI ★</span>
+                                            
+                                            <div className="space-y-1">
+                                              <h2 className="font-extrabold text-lg text-white uppercase tracking-tight">{user?.name || "Vijay Kumar Singh"}</h2>
+                                              <span className="bg-amber-400 text-slate-950 px-2 py-0.5 rounded font-black text-[9px] uppercase tracking-wider inline-block">
+                                                {user?.designation || "CEO & FOUNDER"}
+                                              </span>
                                             </div>
-                                            <p className="text-[10px] font-black text-amber-400 uppercase tracking-wider">SCAN QR FOR INSTANT AI CHAT</p>
                                           </div>
-                                          <p className="text-[8px] font-bold text-amber-400">⚡ POWERED BY MAGNIFAI OS</p>
+                                          <p className="text-[8px] font-bold text-amber-400">⚡ POWERED BY MAGNIFAI</p>
                                         </div>
                                       )}
                                     </div>
@@ -2516,52 +3195,100 @@ export function AppAiAgent() {
 
                                   {/* TEMPLATE 3: EXECUTIVE METALLIC GOLD WAVE (Reference Image 4 Style) */}
                                   {cardTemplate === "wave" && (
-                                    <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 text-white min-h-[230px] p-0 relative flex flex-col justify-between border-2 border-amber-400/60 shadow-2xl overflow-hidden">
+                                    <div className="bg-white text-slate-800 min-h-[230px] p-0 relative flex border-2 border-amber-400 shadow-2xl overflow-hidden">
                                       {cardSide === "front" ? (
-                                        /* FRONT SIDE: HORIZONTAL GOLD WAVES + RIGHT PHOTO CIRCLE */
-                                        <div className="flex flex-col h-full min-h-[230px] justify-between z-10 relative">
-                                          {/* TOP METALLIC GOLD WAVE STRIP */}
-                                          <div className="h-2.5 w-full bg-gradient-to-r from-amber-400 via-amber-200 to-amber-500 shadow-md"></div>
+                                        /* FRONT SIDE: PHOTO + LOGO + NAME/DESIGNATION + QR */
+                                        <>
+                                          {/* Left side portrait */}
+                                          <div className="relative w-[38%] min-h-[230px] bg-slate-950 flex items-center justify-center shrink-0">
+                                            {authorImg ? (
+                                              <img src={mediaUrl(authorImg)} alt="CEO Portrait" className="w-full h-full object-cover" />
+                                            ) : (
+                                              <div className="w-full h-full bg-gradient-to-tr from-amber-500 to-amber-300 text-slate-950 font-black flex items-center justify-center text-4xl uppercase">
+                                                {user?.name ? user.name.charAt(0) : "V"}
+                                              </div>
+                                            )}
+                                          </div>
 
-                                          <div className="p-4 flex-1 flex justify-between items-center gap-3">
-                                            {/* LEFT TEXT DETAILS */}
-                                            <div className="text-left space-y-1.5 flex-1 min-w-0">
-                                              <h2 className="font-extrabold text-base text-white tracking-wide truncate">{user?.name || "Vijay Kumar Singh"}</h2>
-                                              <p className="text-[10px] text-amber-300 font-black uppercase tracking-widest">CEO & FOUNDER</p>
-                                              <div className="border-t border-slate-800 pt-2 space-y-0.5">
-                                                <p className="text-[10px] text-indigo-200 font-extrabold truncate">AGENT: {currentAgent?.name || "AI Assistant"}</p>
-                                                <p className="text-[8px] text-slate-400 italic truncate">{currentAgent?.category || "Voice & Chat Assistant"}</p>
+                                          {/* Curved Wave Separators */}
+                                          <svg className="absolute inset-y-0 left-[34%] w-[12%] h-full text-amber-500 fill-current pointer-events-none z-10" viewBox="0 0 100 100" preserveAspectRatio="none">
+                                            <path d="M0,0 Q40,50 0,100 L100,100 L100,0 Z" />
+                                          </svg>
+                                          <svg className="absolute inset-y-0 left-[35%] w-[12%] h-full text-white fill-current pointer-events-none z-10" viewBox="0 0 100 100" preserveAspectRatio="none">
+                                            <path d="M0,0 Q40,50 0,100 L100,100 L100,0 Z" />
+                                          </svg>
+
+                                          {/* Right side info panel */}
+                                          <div className="flex-1 flex flex-col justify-between p-3 pl-8 min-w-0 z-10">
+                                            {/* Top logo (shifted down and made larger) */}
+                                            <div className="flex justify-center items-center h-12 w-full pt-2">
+                                              {currentAgent?.customization?.logo_url || custLogoUrl ? (
+                                                <img src={mediaUrl(currentAgent?.customization?.logo_url || custLogoUrl)} alt="Brand Logo" className="h-10 max-w-[170px] object-contain" />
+                                              ) : (
+                                                <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">★ MAGNIFAI ★</span>
+                                              )}
+                                            </div>
+
+                                            {/* Middle Name and Designation */}
+                                            <div className="text-center space-y-0.5 min-w-0">
+                                              <div className="flex items-center justify-center gap-1.5">
+                                                <span className="h-[1px] w-5 bg-amber-300"></span>
+                                                <span className="text-[8px] text-amber-600 font-bold uppercase tracking-wider">Hello I am</span>
+                                                <span className="h-[1px] w-5 bg-amber-300"></span>
+                                              </div>
+                                              <h2 className="font-black text-sm text-slate-900 leading-tight truncate">
+                                                {user?.name || "Vijay Kumar Singh"}
+                                              </h2>
+                                              {/* Designation Badge */}
+                                              <div className="inline-block bg-amber-50 border border-amber-300/40 rounded-full px-2.5 py-0.5 shadow-2xs">
+                                                <span className="text-[8px] font-black text-amber-600 uppercase tracking-wider block truncate max-w-[160px]">
+                                                  • {user?.designation || "CEO & Founder"} •
+                                                </span>
                                               </div>
                                             </div>
 
-                                            {/* RIGHT SIDE PHOTO WAVE FRAME */}
-                                            <div className="shrink-0">
-                                              {authorImg ? (
-                                                <img src={mediaUrl(authorImg)} alt="Agent Logo" className="h-20 w-20 rounded-full object-cover border-2 border-amber-400 shadow-2xl ring-4 ring-amber-400/30" />
-                                              ) : (
-                                                <div className="h-20 w-20 rounded-full bg-gradient-to-tr from-amber-400 to-amber-300 text-slate-950 font-black flex items-center justify-center text-2xl border-2 border-white shadow-2xl">
-                                                  {user?.name ? user.name.charAt(0).toUpperCase() : "V"}
-                                                </div>
-                                              )}
+                                            {/* Bottom: QR Code scanner moved down, pills removed */}
+                                            <div className="flex justify-center items-center pb-1">
+                                              <div className="bg-white p-1 rounded-lg border border-amber-400 shadow-3xs">
+                                                <img src={qrUrl} alt="QR Code" className="h-[64px] w-[64px] object-contain" />
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </>
+                                      ) : (
+                                        /* BACK SIDE: LOGO + NAME/DESIGNATION */
+                                        <div className="flex flex-col items-center justify-between min-h-[230px] w-full p-4 bg-white z-10 text-slate-800 border-2 border-amber-400">
+                                          {/* Top logo (shifted down and made larger) */}
+                                          <div className="flex justify-center items-center h-12 w-full pt-2">
+                                            {currentAgent?.customization?.logo_url || custLogoUrl ? (
+                                              <img src={mediaUrl(currentAgent?.customization?.logo_url || custLogoUrl)} alt="Brand Logo" className="h-10 max-w-[170px] object-contain" />
+                                            ) : (
+                                              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">★ MAGNIFAI ★</span>
+                                            )}
+                                          </div>
+
+                                          {/* Middle Name and Designation */}
+                                          <div className="text-center space-y-1 min-w-0 my-auto">
+                                            <div className="flex items-center justify-center gap-1.5">
+                                              <span className="h-[1px] w-5 bg-amber-300"></span>
+                                              <span className="text-[8px] text-amber-600 font-bold uppercase tracking-wider">Hello I am</span>
+                                              <span className="h-[1px] w-5 bg-amber-300"></span>
+                                            </div>
+                                            <h2 className="font-black text-sm text-slate-900 leading-tight truncate">
+                                              {user?.name || "Vijay Kumar Singh"}
+                                            </h2>
+                                            {/* Designation Badge */}
+                                            <div className="inline-block bg-amber-50 border border-amber-300/40 rounded-full px-2.5 py-0.5 shadow-2xs">
+                                              <span className="text-[8px] font-black text-amber-600 uppercase tracking-wider block truncate max-w-[160px]">
+                                                • {user?.designation || "CEO & Founder"} •
+                                              </span>
                                             </div>
                                           </div>
 
-                                          {/* BOTTOM METALLIC GOLD WAVE STRIP */}
-                                          <div className="bg-slate-950 text-slate-300 px-4 py-1.5 text-[9px] flex justify-between items-center font-bold border-t border-amber-400/50">
-                                            <span className="text-amber-400 font-extrabold">⚡ POWERED BY MAGNIFAI OS</span>
-                                            <span className="text-[8px] font-black text-amber-300 uppercase tracking-widest">METALLIC WAVE</span>
+                                          {/* Bottom Footer */}
+                                          <div className="text-center text-[8px] font-bold text-amber-500 pt-1">
+                                            ⚡ POWERED BY MAGNIFAI
                                           </div>
-                                        </div>
-                                      ) : (
-                                        /* BACK SIDE */
-                                        <div className="flex flex-col items-center justify-between min-h-[230px] p-4 bg-slate-950 z-10">
-                                          <div className="flex-1 flex flex-col items-center justify-center space-y-2">
-                                            <div className="bg-white p-2 rounded-xl border-2 border-amber-400 shadow-xl">
-                                              <img src={qrUrl} alt="QR Code" className="h-28 w-28 object-contain" />
-                                            </div>
-                                            <p className="text-[10px] font-extrabold text-amber-300 uppercase tracking-widest text-center">SCAN TO TALK WITH AI ASSISTANT</p>
-                                          </div>
-                                          <p className="text-[8px] font-bold text-amber-400">⚡ POWERED BY MAGNIFAI OS</p>
                                         </div>
                                       )}
                                     </div>
@@ -2589,7 +3316,7 @@ export function AppAiAgent() {
               {agents.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => setViewMode("dashboard")}
+                  onClick={() => setViewMode(selectedAgentId ? "dashboard" : "list")}
                   className="flex items-center gap-1 bg-white hover:bg-slate-100 border border-slate-350 text-slate-700 font-bold text-xs py-2 px-3 rounded-lg shadow-xs transition cursor-pointer shrink-0"
                 >
                   <LuArrowLeft className="h-4 w-4" /> Back
@@ -2792,6 +3519,7 @@ export function AppAiAgent() {
                                 placeholder="Enter custom Voice ID / Name..."
                                 value={voiceName}
                                 onChange={(e) => setVoiceName(e.target.value)}
+                                autoComplete="off"
                                 className="bg-white border border-indigo-300 text-slate-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 p-2.5 w-full shadow-xs mt-1.5"
                               />
                             )}
@@ -2803,10 +3531,12 @@ export function AppAiAgent() {
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Voice Provider API Key</label>
                       <div className="relative">
                         <input
-                          type={showVoiceApiKey ? "text" : "password"}
+                          type="text"
                           placeholder="Enter Voice API Key..."
                           value={voiceApiKey}
                           onChange={(e) => setVoiceApiKey(e.target.value)}
+                          autoComplete="off"
+                          style={{ WebkitTextSecurity: showVoiceApiKey ? "none" : "disc" }}
                           className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 p-2.5 pr-10 w-full shadow-xs"
                         />
                         <button

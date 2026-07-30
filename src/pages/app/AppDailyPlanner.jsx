@@ -39,18 +39,24 @@ export function AppDailyPlanner() {
   const [conflictWarning, setConflictWarning] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Generate 14-day dates window dynamically (-3 days to +10 days around selected date/today)
+  // Generate 14-day dates window dynamically centered around selectedDate
   useEffect(() => {
-    const today = new Date();
+    const baseDate = selectedDate || new Date();
+    const isAlreadyVisible = datesWindow.some(d => isSameDay(d, baseDate));
+    if (isAlreadyVisible && datesWindow.length === 14) return; // Don't shift if clicked date is already visible
+
     const arr = [];
     for (let i = -3; i <= 10; i++) {
-      const d = new Date();
-      d.setDate(today.getDate() + i);
+      const d = new Date(baseDate);
+      d.setDate(baseDate.getDate() + i);
       arr.push(d);
     }
     setDatesWindow(arr);
-    
-    // Set default form date to today
+  }, [selectedDate]);
+
+  // Set default form date to today on mount
+  useEffect(() => {
+    const today = new Date();
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const dd = String(today.getDate()).padStart(2, '0');
@@ -74,6 +80,7 @@ export function AppDailyPlanner() {
 
   // Load events when date or active filter changes, but skip redundant loading on initial render
   const isFirstMount = useRef(true);
+  const dateInputRef = useRef(null);
   useEffect(() => {
     if (isFirstMount.current) {
       isFirstMount.current = false;
@@ -103,8 +110,12 @@ export function AppDailyPlanner() {
             category: p.category || "General",
             time: formattedTime,
             starts_in: p.is_completed ? "Completed" : "Today",
-            colors: idx % 2 === 0 ? ["#FBCFE8", "#E9D5FF"] : ["#BFDBFE", "#A7F3D0"],
-            border_color: idx % 2 === 0 ? "#D8B4FE" : "#6EE7B7"
+            colors: (p.category || "").toLowerCase() === "ugc"
+              ? ["#DDD6FE", "#C4B5FD"]
+              : idx % 2 === 0 ? ["#FBCFE8", "#E9D5FF"] : ["#BFDBFE", "#A7F3D0"],
+            border_color: (p.category || "").toLowerCase() === "ugc"
+              ? "#8B5CF6"
+              : idx % 2 === 0 ? "#D8B4FE" : "#6EE7B7"
           };
         });
         setCarouselItems(items);
@@ -181,7 +192,8 @@ export function AppDailyPlanner() {
         "Meetings": "meeting",
         "Tasks": "work",
         "Reminder": "reminder",
-        "Travel": "travel"
+        "Travel": "travel",
+        "UGC": "ugc"
       };
       const apiCategory = categoryMap[taskCategory] || taskCategory.toLowerCase();
 
@@ -243,6 +255,9 @@ export function AppDailyPlanner() {
     }
     if (activeFilter === "Travel") {
       return cat === "travel";
+    }
+    if (activeFilter === "UGC") {
+      return cat === "ugc";
     }
     return false;
   });
@@ -330,11 +345,47 @@ export function AppDailyPlanner() {
             <LuClock className="h-4 w-4 text-indigo-500" />
             Select Date
           </h2>
-          <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-md">
-            {selectedDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
-          </span>
+          <button
+            type="button"
+            onClick={() => {
+              if (dateInputRef.current) {
+                try {
+                  dateInputRef.current.showPicker();
+                } catch (err) {
+                  console.warn("showPicker fallback", err);
+                  dateInputRef.current.focus();
+                }
+              }
+            }}
+            className="flex items-center gap-2 text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 px-3.5 py-2 rounded-xl border border-slate-200 transition cursor-pointer relative shadow-xs hover:scale-[1.01] active:scale-95"
+          >
+            <LuCalendar className="h-4 w-4 text-indigo-600" />
+            <span>{selectedDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span>
+            <svg className="h-3 w-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+            <input 
+              ref={dateInputRef}
+              type="date"
+              value={(() => {
+                const yyyy = selectedDate.getFullYear();
+                const mm = String(selectedDate.getMonth() + 1).padStart(2, '0');
+                const dd = String(selectedDate.getDate()).padStart(2, '0');
+                return `${yyyy}-${mm}-${dd}`;
+              })()}
+              onChange={(e) => {
+                if (e.target.value) {
+                  // Parse date correctly considering timezones
+                  const parts = e.target.value.split("-");
+                  const newD = new Date(parts[0], parts[1] - 1, parts[2]);
+                  setSelectedDate(newD);
+                }
+              }}
+              className="absolute opacity-0 pointer-events-none w-0 h-0"
+            />
+          </button>
         </div>
-        <div className="flex gap-2 overflow-x-auto py-2 px-1 scrollbar-none">
+        <div className="flex w-full gap-1.5 sm:gap-2 justify-between py-2 px-1 overflow-x-auto sm:overflow-x-visible scrollbar-none">
           {datesWindow.map((d, index) => {
             const isSelected = isSameDay(d, selectedDate);
             const isTodayDate = isSameDay(d, new Date());
@@ -343,7 +394,7 @@ export function AppDailyPlanner() {
               <button
                 key={index}
                 onClick={() => setSelectedDate(d)}
-                className={`flex-shrink-0 w-14 h-16 rounded-xl flex flex-col items-center justify-center transition border cursor-pointer ${
+                className={`flex-1 min-w-[42px] sm:min-w-0 h-16 rounded-xl flex flex-col items-center justify-center transition border cursor-pointer ${
                   isSelected 
                     ? "bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-100" 
                     : "bg-slate-50 border-slate-100 text-slate-500 hover:bg-slate-100"
@@ -366,7 +417,7 @@ export function AppDailyPlanner() {
 
       {/* 3. Category Filter pills */}
       <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-none">
-        {["All", "Meetings", "Tasks", "Reminder", "Travel", "Completed"].map((filter) => (
+        {["All", "Meetings", "Tasks", "UGC", "Reminder", "Travel", "Completed"].map((filter) => (
           <button
             key={filter}
             onClick={() => setActiveFilter(filter)}
@@ -425,6 +476,11 @@ export function AppDailyPlanner() {
                 borderCol = "border-[#BFDBFE]";
                 textCol = "text-blue-900";
                 labelBg = "bg-blue-100 text-blue-800";
+              } else if (categoryLower === "ugc") {
+                cardBg = "bg-[#F5F3FF]";
+                borderCol = "border-[#DDD6FE]";
+                textCol = "text-violet-900";
+                labelBg = "bg-violet-100 text-violet-800";
               }
 
               return (
@@ -584,7 +640,7 @@ export function AppDailyPlanner() {
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-1.5">CATEGORY</label>
                 <div className="flex flex-wrap gap-2">
-                  {["Meetings", "Tasks", "Reminder", "Travel"].map((cat) => {
+                  {["Meetings", "Tasks", "UGC", "Reminder", "Travel"].map((cat) => {
                     const isSel = taskCategory === cat;
                     return (
                       <button
