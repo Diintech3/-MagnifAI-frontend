@@ -86,7 +86,7 @@ export function AppAiAgent({ mode = "business" }) {
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [viewMode, setViewMode] = useState("list"); // list | dashboard | form
-  const [dashboardTab, setDashboardTab] = useState("overview"); // overview | logs | playground
+  const [dashboardTab, setDashboardTab] = useState(mode === "personal" ? "playground" : "overview"); // overview | logs | playground
   const [formActiveTab, setFormActiveTab] = useState("message"); // message | info | voice | system | action | custom | kb | datasources
 
   const [loading, setLoading] = useState(true);
@@ -1560,40 +1560,52 @@ export function AppAiAgent({ mode = "business" }) {
   // Save Config
   async function handleSaveAgent(e) {
     if (e) e.preventDefault();
-    if (!formName.trim()) {
-      toastFromError(new Error("Agent name is required"));
-      setFormActiveTab("info");
-      return;
-    }
-
-    const payload = {
-      name: formName.trim(),
-      description: formDesc.trim(),
-      category: formCategory.trim(),
-      personality: formPersonality.trim(),
-      starting_message: formStartingMsg.trim(),
-      system_config: {
-        provider: sysProvider,
-        model: sysModel,
-        ...(sysApiKey.trim() ? { api_key: sysApiKey.trim() } : {}),
-        ...(sysPrompt.trim() ? { system_prompt: sysPrompt.trim() } : {})
-      },
-      voice_config: {
-        provider: voiceProvider,
-        ...(voiceName ? { voice_name: voiceName } : {}),
-        ...(voiceApiKey.trim() ? { api_key: voiceApiKey.trim() } : {})
-      },
-      customization: {
-        ...(custLogoUrl.trim() ? { logo_url: custLogoUrl.trim() } : {}),
-        ...(custColor.trim() ? { color: custColor.trim() } : {}),
-        ...(custChatLink.trim() ? { chat_link: custChatLink.trim() } : {}),
-        ...(custAuthorImage.trim() ? { author_image_url: custAuthorImage.trim() } : {}),
-        qa_pairs: qaPairs.filter(pair => pair.q.trim() && pair.a.trim())
-      },
-      datastores: []
-    };
-
     try {
+      const nameVal = (formName || "").trim();
+      const descVal = (formDesc || "").trim();
+      const catVal = (formCategory || "").trim();
+      const persVal = (formPersonality || "").trim();
+      const startMsgVal = (formStartingMsg || "").trim();
+      const sysApiVal = (sysApiKey || "").trim();
+      const sysPromptVal = (sysPrompt || "").trim();
+      const voiceApiVal = (voiceApiKey || "").trim();
+      const logoUrlVal = (custLogoUrl || "").trim();
+      const colorVal = (custColor || "").trim();
+      const chatLinkVal = (custChatLink || "").trim();
+      const authorImgVal = (custAuthorImage || "").trim();
+
+      if (!nameVal) {
+        toastFromError(new Error("Agent name is required"));
+        setFormActiveTab("info");
+        return;
+      }
+
+      const payload = {
+        name: nameVal,
+        description: descVal,
+        category: catVal,
+        personality: persVal,
+        starting_message: startMsgVal,
+        system_config: {
+          provider: sysProvider,
+          model: sysModel,
+          ...(sysApiVal ? { api_key: sysApiVal } : {}),
+          ...(sysPromptVal ? { system_prompt: sysPromptVal } : {})
+        },
+        voice_config: {
+          provider: voiceProvider,
+          ...(voiceName ? { voice_name: voiceName } : {}),
+          ...(voiceApiVal ? { api_key: voiceApiVal } : {})
+        },
+        customization: {
+          ...(logoUrlVal ? { logo_url: logoUrlVal } : {}),
+          ...(colorVal ? { color: colorVal } : {}),
+          ...(chatLinkVal ? { chat_link: chatLinkVal } : {}),
+          ...(authorImgVal ? { author_image_url: authorImgVal } : {}),
+          qa_pairs: (qaPairs || []).filter(pair => pair && pair.q && pair.a && pair.q.trim() && pair.a.trim())
+        },
+        datastores: []
+      };
       if (formMode === "create") {
         const res = await api("/api/agents", {
           method: "POST",
@@ -1936,7 +1948,7 @@ export function AppAiAgent({ mode = "business" }) {
             {[
               { id: "overview", label: "Overview", icon: LuSettings },
               { id: "logs", label: "Leads & Visitor Chats", icon: LuFileText },
-              { id: "playground", label: "Test Chat Room", icon: LuMessageSquare }
+              { id: "playground", label: mode === "personal" ? "Personal AI Copilot" : "Test Chat Room", icon: LuMessageSquare }
             ].map((tab) => {
               const Icon = tab.icon;
               const active = dashboardTab === tab.id;
@@ -2892,7 +2904,7 @@ export function AppAiAgent({ mode = "business" }) {
                         <div className="lg:col-span-2 border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col h-[410px] bg-white">
                           <div className="flex justify-between items-center border-b border-slate-200 pb-2.5 mb-3">
                             <h3 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
-                              <LuBot className="h-4 w-4 text-indigo-600" /> Testing Sandbox
+                              <LuBot className="h-4 w-4 text-indigo-600" /> {mode === "personal" ? "Personal AI Copilot" : "Testing Sandbox"}
                             </h3>
                             <div className="flex items-center gap-3">
                               <label className="flex items-center gap-1.5 cursor-pointer">
@@ -2965,7 +2977,7 @@ export function AppAiAgent({ mode = "business" }) {
                             </button>
                             <input
                               type="text"
-                              placeholder={isListening ? "Listening... speak now" : "Type a message or click mic to speak..."}
+                              placeholder={isListening ? "Listening... speak now" : mode === "personal" ? "Ask your Personal AI Copilot to manage daily planner or write scripts..." : "Type a message or click mic to speak..."}
                               value={chatInput}
                               onChange={(e) => setChatInput(e.target.value)}
                               className={`flex-1 bg-white border text-slate-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 px-3 py-2 w-full shadow-2xs ${isListening ? "border-red-400 bg-red-50/30" : "border-slate-300"

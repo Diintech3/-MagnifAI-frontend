@@ -31,6 +31,7 @@ import { AppScriptsApproval } from "./app/AppScriptsApproval";
 import { CategoryManagement } from "./app/CategoryManagement";
 import { AppAiAgent } from "./app/AppAiAgent";
 import { AppDailyPlanner } from "./app/AppDailyPlanner";
+import { AppDailyPlannerAnalysis } from "./app/AppDailyPlannerAnalysis";
 
 // ── Nav configs ────────────────────────────────────────────────────────────────
 
@@ -194,6 +195,7 @@ export function AppDashboard() {
         <Route path="personality"      element={<AppPersonalityComingSoon />} />
         <Route path="personal-ai"      element={<AppAiAgent mode="personal" />} />
         <Route path="daily-planner"    element={<AppDailyPlanner />} />
+        <Route path="daily-planner/analysis" element={<AppDailyPlannerAnalysis />} />
         <Route path="ai-agent"         element={<AppAiAgent mode="business" />} />
         <Route path="help"             element={<HelpPage />} />
         <Route path="*"                element={<Navigate to={basePath} replace />} />

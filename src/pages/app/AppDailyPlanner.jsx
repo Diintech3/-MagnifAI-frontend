@@ -6,14 +6,22 @@ import {
   LuCheck, 
   LuTriangleAlert, 
   LuMapPin,
-  LuActivity
+  LuActivity,
+  LuSparkles,
+  LuSettings
 } from "react-icons/lu";
 import { api } from "../../lib/api";
 import { toastFromError } from "../../lib/toast";
 import { useAuth } from "../../auth/AuthProvider";
+import { useNavigate, useLocation } from "react-router-dom";
+
 
 export function AppDailyPlanner() {
   const { token } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  const basePath = location.pathname.startsWith("/ceo") ? "/ceo" : "/app";
   
   // Date State
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -38,6 +46,7 @@ export function AppDailyPlanner() {
   // Conflict warning modal states
   const [conflictWarning, setConflictWarning] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [editingPlan, setEditingPlan] = useState(null);
 
   // Generate 14-day dates window dynamically centered around selectedDate
   useEffect(() => {
@@ -133,13 +142,15 @@ export function AppDailyPlanner() {
       const dd = String(selectedDate.getDate()).padStart(2, '0');
       const selectedDateStr = `${yyyy}-${mm}-${dd}`;
 
-      // Fetch plans and filter by selected date. If "Completed" tab is active, fetch completed plans
-      const filterType = activeFilter === "Completed" ? "completed" : "all";
-      const data = await api(`/api/root-agent/plans?filter=${filterType}`, { token });
-      if (data) {
-        const filtered = data.filter(plan => plan.plan_date === selectedDateStr);
-        setEvents(filtered);
-      }
+      // Fetch both pending/upcoming ("all") and completed plans to display them correctly across filters
+      const [pendingData, completedData] = await Promise.all([
+        api(`/api/root-agent/plans?filter=all`, { token }).catch(() => []),
+        api(`/api/root-agent/plans?filter=completed`, { token }).catch(() => [])
+      ]);
+      
+      const allPlans = [...(pendingData || []), ...(completedData || [])];
+      const filtered = allPlans.filter(plan => plan.plan_date === selectedDateStr);
+      setEvents(filtered);
     } catch (e) {
       toastFromError(e, "Failed to load events");
     } finally {
@@ -165,6 +176,29 @@ export function AppDailyPlanner() {
     }
   };
 
+  // Edit Click Handler
+  const handleEditClick = (plan) => {
+    setEditingPlan(plan);
+    setTaskTitle(plan.title || "");
+    setTaskDesc(plan.description || "");
+    
+    // Map backend lowercase category to frontend display category
+    const displayCategoryMap = {
+      "meeting": "Meetings",
+      "work": "Tasks",
+      "reminder": "Reminder",
+      "travel": "Travel",
+      "ugc": "UGC"
+    };
+    const displayCategory = displayCategoryMap[plan.category] || "Tasks";
+    setTaskCategory(displayCategory);
+    
+    setTaskTime(plan.plan_time || "09:00");
+    setTaskDate(plan.plan_date || "");
+    setConflictWarning(null);
+    setShowDrawer(true);
+  };
+
   // Submit Plan Flow
   const handleSubmitPlan = async (forceSave = false) => {
     if (!taskTitle.trim()) {
@@ -176,10 +210,11 @@ export function AppDailyPlanner() {
     try {
       // Step A: Conflict check
       if (!forceSave) {
-        const conflictRes = await api(
-          `/api/root-agent/plans/check-conflict?plan_date=${taskDate}&plan_time=${taskTime}`,
-          { token }
-        );
+        let conflictUrl = `/api/root-agent/plans/check-conflict?plan_date=${taskDate}&plan_time=${taskTime}`;
+        if (editingPlan) {
+          conflictUrl += `&exclude_plan_id=${editingPlan.plan_id}`;
+        }
+        const conflictRes = await api(conflictUrl, { token });
         if (conflictRes && conflictRes.has_conflict) {
           setConflictWarning(conflictRes.conflicts[0]);
           setSubmitting(false);
@@ -197,8 +232,13 @@ export function AppDailyPlanner() {
       };
       const apiCategory = categoryMap[taskCategory] || taskCategory.toLowerCase();
 
-      const res = await api("/api/root-agent/plans", {
-        method: "POST",
+      const url = editingPlan 
+        ? `/api/root-agent/plans/${editingPlan.plan_id}`
+        : "/api/root-agent/plans";
+      const method = editingPlan ? "PUT" : "POST";
+
+      const res = await api(url, {
+        method,
         token,
         body: {
           title: taskTitle,
@@ -212,6 +252,8 @@ export function AppDailyPlanner() {
       if (res && res.success) {
         setShowDrawer(false);
         setConflictWarning(null);
+        setEditingPlan(null);
+        
         // Reset form
         setTaskTitle("");
         setTaskDesc("");
@@ -234,11 +276,6 @@ export function AppDailyPlanner() {
     
     if (activeFilter === "Completed") {
       return isEventCompleted;
-    }
-    
-    // For other tabs, exclude completed events (as per backend behavior)
-    if (isEventCompleted) {
-      return false;
     }
     
     if (activeFilter === "All") return true;
@@ -291,13 +328,28 @@ export function AppDailyPlanner() {
             Manage your daily tasks, meetings, travel plans and check visual alerts.
           </p>
         </div>
-        <button
-          onClick={() => setShowDrawer(true)}
-          className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-200 transition font-semibold text-sm cursor-pointer"
-        >
-          <LuPlus className="h-4 w-4" />
-          Plan My Day
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={() => {
+              const yyyy = selectedDate.getFullYear();
+              const mm = String(selectedDate.getMonth() + 1).padStart(2, '0');
+              const dd = String(selectedDate.getDate()).padStart(2, '0');
+              const selectedDateStr = `${yyyy}-${mm}-${dd}`;
+              navigate(`${basePath}/daily-planner/analysis?date=${selectedDateStr}`);
+            }}
+            className="flex items-center gap-2 px-5 py-2.5 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-800 rounded-xl shadow-xs transition font-semibold text-sm cursor-pointer border border-slate-200"
+          >
+            <LuSparkles className="h-4.5 w-4.5 text-amber-500 animate-pulse fill-amber-100" />
+            AI Insights
+          </button>
+          <button
+            onClick={() => setShowDrawer(true)}
+            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-200 transition font-semibold text-sm cursor-pointer"
+          >
+            <LuPlus className="h-4 w-4" />
+            Plan My Day
+          </button>
+        </div>
       </div>
 
       {/* 1. Header Carousel Section */}
@@ -553,16 +605,25 @@ export function AppDailyPlanner() {
                       )}
                     </div>
 
-                    <button
-                      onClick={() => handleToggleCompletion(plan.plan_id)}
-                      className={`h-8 w-8 rounded-full flex items-center justify-center border transition shadow-sm cursor-pointer ${
-                        plan.is_completed 
-                          ? "bg-slate-500 border-slate-500 text-white" 
-                          : "bg-white border-slate-200 text-slate-400 hover:border-indigo-500 hover:text-indigo-600"
-                      }`}
-                    >
-                      <LuCheck className="h-4.5 w-4.5 stroke-[2.5]" />
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => handleEditClick(plan)}
+                        className="h-8 w-8 rounded-full flex items-center justify-center border border-slate-200 bg-white text-slate-400 hover:border-indigo-500 hover:text-indigo-600 transition shadow-sm cursor-pointer"
+                        title="Edit Plan"
+                      >
+                        <LuSettings className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleToggleCompletion(plan.plan_id)}
+                        className={`h-8 w-8 rounded-full flex items-center justify-center border transition shadow-sm cursor-pointer ${
+                          plan.is_completed 
+                            ? "bg-slate-500 border-slate-500 text-white" 
+                            : "bg-white border-slate-200 text-slate-400 hover:border-indigo-500 hover:text-indigo-600"
+                        }`}
+                      >
+                        <LuCheck className="h-4.5 w-4.5 stroke-[2.5]" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -578,6 +639,7 @@ export function AppDailyPlanner() {
             onClick={() => {
               setShowDrawer(false);
               setConflictWarning(null);
+              setEditingPlan(null);
             }} 
             className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs transition" 
           />
@@ -585,7 +647,7 @@ export function AppDailyPlanner() {
           <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col p-6 overflow-y-auto">
             <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-6 border-b border-slate-100 pb-3">
               <LuActivity className="h-5 w-5 text-indigo-600" />
-              Plan Your Day
+              {editingPlan ? "Edit Plan / Task" : "Plan Your Day"}
             </h2>
 
             {conflictWarning && (
@@ -687,6 +749,7 @@ export function AppDailyPlanner() {
                 onClick={() => {
                   setShowDrawer(false);
                   setConflictWarning(null);
+                  setEditingPlan(null);
                 }}
                 className="flex-1 py-2.5 border border-slate-200 text-slate-600 font-bold rounded-xl text-sm hover:bg-slate-50 transition cursor-pointer"
               >

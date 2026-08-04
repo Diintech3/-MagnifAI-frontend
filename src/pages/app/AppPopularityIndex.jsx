@@ -4,7 +4,8 @@ import {
   LuInstagram, LuFacebook, LuYoutube, LuHeart, LuMessageCircle,
   LuEye, LuLink, LuUnlink,
   LuArrowLeft, LuExternalLink, LuTwitter,
-  LuUserPlus, LuSearch, LuTrash2, LuPlus, LuCheck
+  LuUserPlus, LuSearch, LuTrash2, LuPlus, LuCheck,
+  LuPhone, LuMessageSquare, LuBot
 } from "react-icons/lu";
 import { useAuth } from "../../auth/AuthProvider";
 import { api } from "../../lib/api";
@@ -61,6 +62,10 @@ export function AppPopularityIndex() {
   const [showForm, setShowForm] = useState(false);
   const [formState, setFormState] = useState({});
   const [savingPlatform, setSavingPlatform] = useState(false);
+
+  // Pings state variables
+  const [pingsData, setPingsData] = useState(null);
+  const [pingsLoading, setPingsLoading] = useState(false);
 
   const [timeRange, setTimeRange] = useState("7 Days");
   const [customStartDate, setCustomStartDate] = useState("");
@@ -120,6 +125,30 @@ export function AppPopularityIndex() {
       loadPeople();
     } catch (err) {
       toastFromError(err, "Failed to add contact");
+    }
+  };
+
+  const [verifyingWhatsApp, setVerifyingWhatsApp] = useState(false);
+
+  const onVerifyWhatsApp = async () => {
+    setVerifyingWhatsApp(true);
+    try {
+      const res = await api("/api/app/people/contacts/verify-whatsapp?force=true", {
+        method: "POST",
+        token
+      });
+      if (res.success !== false && res.checkedCount > 0) {
+        toastSuccess(`WhatsApp check complete! Verified: ${res.checkedCount} contacts (Active: ${res.activeCount}, Inactive: ${res.inactiveCount})`);
+      } else if (res.success === false) {
+        toastError(res.message || "Meta API check failed. Please verify your settings.");
+      } else {
+        toastSuccess("All contacts are already verified!");
+      }
+      loadPeople();
+    } catch (err) {
+      toastFromError(err, "Failed to verify WhatsApp status");
+    } finally {
+      setVerifyingWhatsApp(false);
     }
   };
 
@@ -232,10 +261,25 @@ export function AppPopularityIndex() {
     finally { setLoading(false); }
   }, [token]);
 
+  // Load pings analytics data from backend route
+  const loadPings = useCallback(async () => {
+    setPingsLoading(true);
+    try {
+      const data = await api("/api/agents/analytics/pings", { token });
+      setPingsData(data || null);
+    } catch (e) {
+      console.error("Failed to load pings data:", e.message);
+    } finally {
+      setPingsLoading(false);
+    }
+  }, [token]);
+
   // Load connected social media platform details from separated modular API endpoints
-  const loadSocial = useCallback(async () => {
+  const loadSocial = useCallback(async (clearData = true) => {
     setSocialLoading(true);
-    setSocialData(null);
+    if (clearData) {
+      setSocialData(null);
+    }
     try {
       let queryParams = `?timeRange=${timeRange}`;
       if (timeRange === "Date Range" && customStartDate && customEndDate) {
@@ -284,11 +328,14 @@ export function AppPopularityIndex() {
   }, [activePlatform]);
 
   // Fetch social stats whenever active platform or timeframe parameters update
+  const [lastPlatform, setLastPlatform] = useState(activePlatform);
   useEffect(() => {
     Promise.resolve().then(() => {
-      loadSocial();
+      const platformChanged = activePlatform !== lastPlatform;
+      setLastPlatform(activePlatform);
+      loadSocial(platformChanged);
     });
-  }, [loadSocial]);
+  }, [activePlatform, timeRange, customStartDate, customEndDate, loadSocial, lastPlatform]);
 
   // Fetch People data when dependencies change
   useEffect(() => {
@@ -296,6 +343,15 @@ export function AppPopularityIndex() {
       loadPeople();
     });
   }, [loadPeople]);
+
+  // Fetch pings data when pings tab is active
+  useEffect(() => {
+    if (activeTab === "pings") {
+      Promise.resolve().then(() => {
+        loadPings();
+      });
+    }
+  }, [activeTab, loadPings]);
 
   async function onSavePlatform(e) {
     e.preventDefault();
@@ -379,17 +435,20 @@ export function AppPopularityIndex() {
         </div>
       </div>
 
-      {/* Main Tabs (Social Media vs Campaign) */}
-      <div className="flex bg-white rounded-full p-1 border border-slate-100 shadow-sm max-w-sm mb-6">
-        <button onClick={() => setActiveTab("social_media")} className={`flex-1 text-center py-2 px-4 rounded-full text-sm font-bold transition-all ${activeTab === "social_media" ? "bg-amber-400 text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+      {/* Main Tabs (Social Media vs Campaign vs Pings) */}
+      <div className="flex bg-white rounded-full p-1 border border-slate-100 shadow-sm max-w-md mb-6">
+        <button onClick={() => setActiveTab("social_media")} className={`flex-1 text-center py-2 px-4 rounded-full text-xs sm:text-sm font-bold transition-all ${activeTab === "social_media" ? "bg-amber-400 text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
           Social Media
         </button>
-        <button onClick={() => setActiveTab("campaign")} className={`flex-1 text-center py-2 px-4 rounded-full text-sm font-bold transition-all ${activeTab === "campaign" ? "bg-amber-400 text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+        <button onClick={() => setActiveTab("campaign")} className={`flex-1 text-center py-2 px-4 rounded-full text-xs sm:text-sm font-bold transition-all ${activeTab === "campaign" ? "bg-amber-400 text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
           Campaign
+        </button>
+        <button onClick={() => setActiveTab("pings")} className={`flex-1 text-center py-2 px-4 rounded-full text-xs sm:text-sm font-bold transition-all ${activeTab === "pings" ? "bg-amber-400 text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+          AI Agents (Pings)
         </button>
       </div>
 
-      {activeTab === "social_media" ? (
+      {activeTab === "social_media" && (
         <>
           {/* Sub-tabs / Platform Chips */}
           <div className="flex flex-wrap gap-3 mb-6">
@@ -402,12 +461,12 @@ export function AppPopularityIndex() {
           </div>
 
           {/* Social Media Content Loader */}
-          {socialLoading ? (
+          {socialLoading && !socialData ? (
             <div className="flex h-48 items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white text-sm text-slate-400">
               <span className="animate-pulse">Loading {activePlatform} stats...</span>
             </div>
           ) : socialData?.isConnected ? (
-            <>
+            <div className={`transition-opacity duration-200 ${socialLoading ? "opacity-60 pointer-events-none" : "opacity-100"}`}>
               {socialData.isPersonal && (
                 <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/50 p-4 flex gap-3 text-amber-800 text-xs font-semibold leading-relaxed animate-fadeIn">
                   <span className="text-base shrink-0">⚠️</span>
@@ -806,7 +865,7 @@ export function AppPopularityIndex() {
                   No posts found for this time range.
                 </div>
               )}
-            </>
+            </div>
           ) : (
             /* Connect profile prompt card */
             <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center mb-6 shadow-sm">
@@ -850,11 +909,17 @@ export function AppPopularityIndex() {
             </div>
           )}
         </>
-      ) : (
+      )}
+
+      {activeTab === "campaign" && (
         /* Campaigns Section Placeholder */
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center text-slate-400 text-sm mb-6 font-semibold shadow-sm">
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center text-slate-400 text-sm mb-6 font-semibold shadow-sm animate-fadeIn">
           Campaign analytics are not active for this workspace.
         </div>
+      )}
+
+      {activeTab === "pings" && (
+        <AppPingsDashboard loading={pingsLoading} data={pingsData} onRefresh={loadPings} />
       )}
 
       {/* PEOPLE SECTION */}
@@ -921,12 +986,31 @@ export function AppPopularityIndex() {
                     </div>
                     <div>
                       <h4 className="text-sm font-bold text-slate-800">{member.name}</h4>
-                      <p className="text-xs text-slate-400">{member.phone}</p>
+                      <p className="text-xs text-slate-400 flex items-center gap-1.5">
+                        {member.phone}
+                        {member.isWhatsAppActive === true && (
+                          <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-black text-emerald-600 border border-emerald-200 shadow-sm shrink-0">
+                            <LuMessageCircle className="h-2.5 w-2.5 fill-emerald-600" /> WhatsApp
+                          </span>
+                        )}
+                        {member.isWhatsAppActive === false && (
+                          <span className="inline-flex items-center gap-0.5 rounded-full bg-slate-50 px-1.5 py-0.5 text-[9px] font-bold text-slate-400 border border-slate-200 shrink-0">
+                            No WA
+                          </span>
+                        )}
+                      </p>
                     </div>
                   </div>
-                  <span className="text-xs text-slate-500 font-semibold bg-slate-100/80 px-2 py-0.5 rounded-md">
-                    {member.joinedAt}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500 font-semibold bg-slate-100/80 px-2 py-0.5 rounded-md">
+                      {member.joinedAt}
+                    </span>
+                    {member.isWhatsAppActive === true ? (
+                      <LuMessageCircle className="h-5 w-5 text-emerald-600 fill-emerald-100 shrink-0" title="Active WhatsApp Contact" />
+                    ) : (
+                      <LuMessageCircle className="h-5 w-5 text-slate-300 fill-slate-50 shrink-0" title="Not registered on WhatsApp" />
+                    )}
+                  </div>
                 </div>
               ))
             )}
@@ -953,6 +1037,15 @@ export function AppPopularityIndex() {
                 className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 shadow-sm"
               >
                 <LuUserPlus className="h-3.5 w-3.5" /> Add Contact
+              </button>
+              <button
+                onClick={onVerifyWhatsApp}
+                disabled={verifyingWhatsApp}
+                className="flex items-center gap-1.5 rounded-xl bg-emerald-600 text-white px-3 py-2 text-xs font-bold hover:bg-emerald-700 shadow-sm disabled:opacity-50 transition-colors"
+                title="Verify WhatsApp status of unchecked contacts using Meta API"
+              >
+                <LuMessageCircle className={`h-3.5 w-3.5 ${verifyingWhatsApp ? "animate-pulse" : ""}`} /> 
+                {verifyingWhatsApp ? "Checking..." : "Verify WhatsApp"}
               </button>
               <button
                 onClick={onSyncContacts}
@@ -1081,16 +1174,35 @@ export function AppPopularityIndex() {
                       </div>
                       <div>
                         <h4 className="text-sm font-bold text-slate-800">{c.name}</h4>
-                        <p className="text-xs text-slate-400">{c.phone} {c.email ? `• ${c.email}` : ""}</p>
+                        <p className="text-xs text-slate-400 flex items-center gap-1.5 flex-wrap">
+                          <span>{c.phone} {c.email ? `• ${c.email}` : ""}</span>
+                          {c.isWhatsAppActive === true && (
+                            <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-black text-emerald-600 border border-emerald-200 shadow-sm shrink-0">
+                              <LuMessageCircle className="h-2.5 w-2.5 fill-emerald-600" /> WhatsApp
+                            </span>
+                          )}
+                          {c.isWhatsAppActive === false && (
+                            <span className="inline-flex items-center gap-0.5 rounded-full bg-slate-50 px-1.5 py-0.5 text-[9px] font-bold text-slate-400 border border-slate-200 shrink-0">
+                              No WA
+                            </span>
+                          )}
+                        </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => onDeleteContact(c.id)}
-                      className="text-slate-400 hover:text-red-500 p-1.5 transition-colors"
-                      title="Delete Contact"
-                    >
-                      <LuTrash2 className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {c.isWhatsAppActive === true ? (
+                        <LuMessageCircle className="h-5 w-5 text-emerald-600 fill-emerald-100 shrink-0" title="Active WhatsApp Contact" />
+                      ) : (
+                        <LuMessageCircle className="h-5 w-5 text-slate-300 fill-slate-50 shrink-0" title="Not registered on WhatsApp" />
+                      )}
+                      <button
+                        onClick={() => onDeleteContact(c.id)}
+                        className="text-slate-400 hover:text-red-500 p-1.5 transition-colors"
+                        title="Delete Contact"
+                      >
+                        <LuTrash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
@@ -1344,6 +1456,665 @@ function LuShieldCheck({ className }) {
       stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/>
     </svg>
+  );
+}
+
+function AppPingsDashboard({ loading, data, onRefresh }) {
+  const summary = data?.summary || {
+    totalPings: 0,
+    whatsappChats: 0,
+    webChats: 0,
+    meetingRequests: 0,
+    contactCalls: 0,
+    newCalls: 0,
+    ivrCalls: 0
+  };
+
+  const breakdown = data?.breakdown || [];
+
+  const { token } = useAuth();
+  
+  // State for Chat Explorer
+  const [isExploring, setIsExploring] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState("all"); // "all", "web", "whatsapp"
+  const [selectedAgentIdFilter, setSelectedAgentIdFilter] = useState("all"); // "all" or specific agent_id
+  
+  const [sessions, setSessions] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  
+  const [selectedUserGroup, setSelectedUserGroup] = useState(null);
+  const [selectedSessionId, setSelectedSessionId] = useState(null);
+  
+  const [messages, setMessages] = useState([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [analysisText, setAnalysisText] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+
+  const loadSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    try {
+      const res = await api("/api/agents/sessions", { token });
+      setSessions(res || []);
+    } catch (err) {
+      toastFromError(err);
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, [token]);
+
+  const loadMessages = useCallback(async (sessId) => {
+    if (!sessId) return;
+    setMessagesLoading(true);
+    setAnalysisText("");
+    try {
+      const res = await api(`/api/agents/sessions/${sessId}/history`, { token });
+      setMessages(res || []);
+    } catch (err) {
+      toastFromError(err);
+    } finally {
+      setMessagesLoading(false);
+    }
+  }, [token]);
+
+  const runAiAnalysis = async (agentId, deviceId) => {
+    if (!agentId || !deviceId) return;
+    setAnalyzing(true);
+    try {
+      const res = await api(`/api/agents/sessions/analyze/${agentId}/${deviceId}`, {
+        method: "POST",
+        token
+      });
+      if (res && res.analysis) {
+        setAnalysisText(res.analysis);
+        toastSuccess("AI Analysis completed!");
+      } else {
+        setAnalysisText(res || "No insights could be generated.");
+      }
+    } catch (err) {
+      toastFromError(err);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const handleExploreCard = (category) => {
+    setSelectedCategory(category);
+    setSelectedAgentIdFilter("all");
+    setIsExploring(true);
+    loadSessions();
+  };
+
+  const handleExploreRow = (agent) => {
+    setSelectedCategory("all");
+    setSelectedAgentIdFilter(agent.agent_id);
+    setIsExploring(true);
+    loadSessions();
+  };
+
+  // Helper to filter session visits by category and agent for a specific user
+  const getVisibleSessionsForUser = useCallback((userGroup) => {
+    if (!userGroup || !userGroup.sessions) return [];
+    return userGroup.sessions.filter(s => {
+      // Agent filter
+      if (selectedAgentIdFilter !== "all" && s.agent_id !== selectedAgentIdFilter) return false;
+      // Category filter
+      if (selectedCategory === "all") return true;
+      const isSessWhatsapp = s.platform === "whatsapp" || s.role === "whatsapp";
+      return selectedCategory === "whatsapp" ? isSessWhatsapp : !isSessWhatsapp;
+    });
+  }, [selectedCategory, selectedAgentIdFilter]);
+
+  // When selected user group or filters change, auto-select the latest matching session
+  useEffect(() => {
+    const visibleSess = getVisibleSessionsForUser(selectedUserGroup);
+    if (visibleSess && visibleSess.length > 0) {
+      const firstSessionId = visibleSess[0].session_id;
+      setSelectedSessionId(firstSessionId);
+      if (visibleSess[0].analysis) {
+        setAnalysisText(visibleSess[0].analysis);
+      } else {
+        setAnalysisText("");
+      }
+      loadMessages(firstSessionId);
+    } else {
+      setSelectedSessionId(null);
+      setMessages([]);
+      setAnalysisText("");
+    }
+  }, [selectedUserGroup, selectedCategory, selectedAgentIdFilter, getVisibleSessionsForUser, loadMessages]);
+
+  const handleSessionChange = (sessId) => {
+    setSelectedSessionId(sessId);
+    const foundSess = selectedUserGroup?.sessions?.find(s => s.session_id === sessId);
+    if (foundSess?.analysis) {
+      setAnalysisText(foundSess.analysis);
+    } else {
+      setAnalysisText("");
+    }
+    loadMessages(sessId);
+  };
+
+  const formatRelativeTime = (dateStr) => {
+    if (!dateStr) return "";
+    try {
+      const d = new Date(dateStr);
+      const now = new Date();
+      const diffMs = now - d;
+      const diffSec = Math.floor(diffMs / 1000);
+      const diffMin = Math.floor(diffSec / 60);
+      const diffHr = Math.floor(diffMin / 60);
+      const diffDays = Math.floor(diffHr / 24);
+
+      if (diffSec < 60) return "Just now";
+      if (diffMin < 60) return `${diffMin}m ago`;
+      if (diffHr < 24) return `${diffHr}h ago`;
+      if (diffDays < 7) return `${diffDays}d ago`;
+
+      return d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    } catch (e) {
+      return dateStr;
+    }
+  };
+
+  // Filter user groups for left pane
+  const filteredUserGroups = sessions.filter(userGroup => {
+    // 1. Search Query filter (matches username or phone)
+    const matchesSearch = 
+      userGroup.user_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      userGroup.phone_number.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    if (!matchesSearch) return false;
+
+    // 2. Agent Filter: does this user group have sessions for the filtered agent?
+    const matchesAgent = selectedAgentIdFilter === "all" || 
+      userGroup.sessions.some(s => s.agent_id === selectedAgentIdFilter);
+    
+    if (!matchesAgent) return false;
+
+    // 3. Platform Filter: does this user group have sessions matching the category?
+    if (selectedCategory === "all") return true;
+    
+    const isWhatsappCategory = selectedCategory === "whatsapp";
+    return userGroup.sessions.some(s => {
+      const isSessWhatsapp = s.platform === "whatsapp" || s.role === "whatsapp";
+      return isWhatsappCategory ? isSessWhatsapp : !isSessWhatsapp;
+    });
+  });
+
+  if (isExploring) {
+    const visibleSessionsOfSelectedUser = getVisibleSessionsForUser(selectedUserGroup);
+    const activeSessionDetail = selectedUserGroup?.sessions?.find(s => s.session_id === selectedSessionId);
+
+    return (
+      <div className="space-y-6 animate-fadeIn">
+        {/* Explorer Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                setIsExploring(false);
+                setSelectedUserGroup(null);
+                setSelectedSessionId(null);
+                setMessages([]);
+              }}
+              className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition shadow-sm"
+            >
+              <LuArrowLeft className="h-4 w-4" />
+            </button>
+            <div>
+              <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                <LuBot className="h-4 w-4 text-indigo-600" />
+                AI Agent Chat Explorer
+              </h3>
+              <p className="text-xs text-slate-400">
+                Exploring {selectedCategory === "web" ? "Web Chats" : selectedCategory === "whatsapp" ? "WhatsApp Chats" : "All Chats"} 
+                {selectedAgentIdFilter !== "all" && ` for agent: ${breakdown.find(a => a.agent_id === selectedAgentIdFilter)?.name || selectedAgentIdFilter}`}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-center">
+            <button
+              onClick={loadSessions}
+              disabled={sessionsLoading}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition shadow-sm disabled:opacity-50"
+            >
+              <LuRefreshCw className={`h-3.5 w-3.5 ${sessionsLoading ? "animate-spin" : ""}`} /> Refresh Users List
+            </button>
+          </div>
+        </div>
+
+        {/* Explorer Main Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[600px]">
+          
+          {/* Left Panel: Users List (4 cols) */}
+          <div className="lg:col-span-4 bg-white border border-slate-200 rounded-2xl p-4 flex flex-col h-[650px] shadow-sm">
+            <div className="space-y-3 mb-4">
+              {/* Search */}
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
+                  <LuSearch className="h-3.5 w-3.5" />
+                </span>
+                <input
+                  type="text"
+                  placeholder="Search by name or phone..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition font-medium"
+                />
+              </div>
+
+              {/* Quick Filter chips */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  onClick={() => setSelectedCategory("all")}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition ${selectedCategory === "all" ? "bg-indigo-600 border-indigo-600 text-white" : "bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100"}`}
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setSelectedCategory("web")}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition ${selectedCategory === "web" ? "bg-indigo-600 border-indigo-600 text-white" : "bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100"}`}
+                >
+                  Web
+                </button>
+                <button
+                  onClick={() => setSelectedCategory("whatsapp")}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition ${selectedCategory === "whatsapp" ? "bg-indigo-600 border-indigo-600 text-white" : "bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100"}`}
+                >
+                  WhatsApp
+                </button>
+              </div>
+
+              {/* Agent Filter selector */}
+              <div>
+                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1">Agent Filter</label>
+                <select
+                  value={selectedAgentIdFilter}
+                  onChange={(e) => setSelectedAgentIdFilter(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-xs text-slate-600 font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="all">All Agents</option>
+                  {breakdown.map(agent => (
+                    <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Scrollable list */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+              {sessionsLoading ? (
+                <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-2">
+                  <LuRefreshCw className="h-6 w-6 animate-spin text-indigo-500" />
+                  <span className="text-xs font-semibold animate-pulse">Loading users...</span>
+                </div>
+              ) : filteredUserGroups.length === 0 ? (
+                <div className="flex items-center justify-center h-full text-slate-400 text-xs italic text-center p-4">
+                  No chat users match active filters.
+                </div>
+              ) : (
+                filteredUserGroups.map(user => {
+                  const isSelected = selectedUserGroup?.device_id === user.device_id;
+                  
+                  // Get platforms present in this user's sessions
+                  const platforms = new Set(user.sessions.map(s => {
+                    const isWa = s.platform === "whatsapp" || s.role === "whatsapp";
+                    return isWa ? "whatsapp" : "web";
+                  }));
+                  
+                  return (
+                    <button
+                      key={user.device_id}
+                      onClick={() => setSelectedUserGroup(user)}
+                      className={`w-full text-left p-3.5 rounded-xl border transition flex items-start gap-3 ${isSelected ? "bg-indigo-50/50 border-indigo-200 ring-1 ring-indigo-200" : "bg-white hover:bg-slate-50/50 border-slate-100"}`}
+                    >
+                      {/* Avatar */}
+                      <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-black uppercase text-white shrink-0 ${isSelected ? "bg-indigo-600" : "bg-slate-300"}`}>
+                        {user.user_name.charAt(0)}
+                      </div>
+                      
+                      {/* Details */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <span className="text-xs font-extrabold text-slate-900 truncate pr-2">{user.user_name}</span>
+                          <span className="text-[9px] text-slate-400 font-bold shrink-0">{formatRelativeTime(user.latest_visit)}</span>
+                        </div>
+
+                        {user.phone_number && user.phone_number !== "None" && (
+                          <div className="text-[10px] text-slate-500 flex items-center gap-1 mb-1 font-semibold">
+                            <LuPhone className="h-3 w-3 text-slate-400 shrink-0" />
+                            {user.phone_number}
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between flex-wrap gap-1.5 mt-2">
+                          {/* Platforms Badges */}
+                          <div className="flex items-center gap-1">
+                            {platforms.has("web") && (
+                              <span className="inline-flex items-center gap-0.5 rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-extrabold text-blue-600">
+                                <LuGlobe className="h-2.5 w-2.5" /> Web
+                              </span>
+                            )}
+                            {platforms.has("whatsapp") && (
+                              <span className="inline-flex items-center gap-0.5 rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-extrabold text-emerald-600">
+                                <LuMessageCircle className="h-2.5 w-2.5" /> WhatsApp
+                              </span>
+                            )}
+                          </div>
+                          
+                          {/* Visit counts */}
+                          <span className="text-[9px] text-slate-400 font-extrabold uppercase">
+                            {user.total_visits} {user.total_visits > 1 ? "chats" : "chat"}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Right Panel: Chat Thread (8 cols) */}
+          <div className="lg:col-span-8 bg-white border border-slate-200 rounded-2xl overflow-hidden flex flex-col h-[650px] shadow-sm relative">
+            {!selectedUserGroup ? (
+              /* No selection state */
+              <div className="flex flex-col items-center justify-center flex-1 p-8 text-center bg-slate-50/20">
+                <div className="p-4 rounded-full bg-indigo-50 text-indigo-600 mb-4 animate-bounce">
+                  <LuMessageSquare className="h-8 w-8" />
+                </div>
+                <h4 className="text-sm font-bold text-slate-800">Select a Conversation</h4>
+                <p className="text-xs text-slate-400 max-w-xs mt-1">
+                  Click on any user from the left pane to explore their chat logs and AI interactions.
+                </p>
+              </div>
+            ) : (
+              /* Conversation View */
+              <>
+                {/* Chat Top Bar */}
+                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+                  <div>
+                    <h4 className="text-xs font-black text-slate-800 flex items-center gap-1.5 flex-wrap">
+                      <span>Chat with: {selectedUserGroup.user_name}</span>
+                      {activeSessionDetail && (
+                        <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 text-[9px] font-bold">
+                          Agent: {activeSessionDetail.agent_name || "Unknown"}
+                        </span>
+                      )}
+                    </h4>
+                    {selectedUserGroup.phone_number && selectedUserGroup.phone_number !== "None" && (
+                      <p className="text-[10px] text-slate-400 font-semibold mt-0.5 flex items-center gap-1">
+                        <LuPhone className="h-2.5 w-2.5" /> {selectedUserGroup.phone_number}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* Session Visit Dropdown */}
+                    {visibleSessionsOfSelectedUser.length > 1 && (
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-slate-400 font-extrabold uppercase">Visit:</span>
+                        <select
+                          value={selectedSessionId || ""}
+                          onChange={(e) => handleSessionChange(e.target.value)}
+                          className="bg-white border border-slate-200 rounded-lg p-1 text-[10px] text-slate-600 font-semibold focus:outline-none"
+                        >
+                          {visibleSessionsOfSelectedUser.map((s, idx) => {
+                            const dateStr = s.created_at 
+                              ? new Date(s.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                              : `Session ${idx + 1}`;
+                            return (
+                              <option key={s.session_id} value={s.session_id}>
+                                {dateStr} ({s.platform === "whatsapp" || s.role === "whatsapp" ? "WhatsApp" : "Web"})
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => loadMessages(selectedSessionId)}
+                      disabled={messagesLoading}
+                      title="Reload chat logs"
+                      className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition"
+                    >
+                      <LuRefreshCw className={`h-3.5 w-3.5 ${messagesLoading ? "animate-spin" : ""}`} />
+                    </button>
+                    
+                    <button
+                      onClick={() => runAiAnalysis(activeSessionDetail?.agent_id, selectedUserGroup?.device_id)}
+                      disabled={analyzing || !activeSessionDetail?.agent_id || !selectedUserGroup?.device_id}
+                      className="flex items-center gap-1 rounded-lg border border-slate-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-2 py-1.5 text-[10px] font-extrabold uppercase transition"
+                    >
+                      <LuBot className="h-3.5 w-3.5" />
+                      {analyzing ? "Analyzing..." : "AI Analysis"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Main conversation pane */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/20">
+                  {messagesLoading ? (
+                    <div className="space-y-4">
+                      {/* Skeleton bubbles */}
+                      <div className="flex gap-2.5 max-w-[70%]">
+                        <div className="h-6 w-6 rounded-full bg-slate-200 animate-pulse shrink-0" />
+                        <div className="h-12 bg-slate-200 rounded-2xl w-48 animate-pulse" />
+                      </div>
+                      <div className="flex gap-2.5 max-w-[70%] ml-auto justify-end">
+                        <div className="h-10 bg-indigo-100 rounded-2xl w-32 animate-pulse" />
+                      </div>
+                      <div className="flex gap-2.5 max-w-[70%]">
+                        <div className="h-6 w-6 rounded-full bg-slate-200 animate-pulse shrink-0" />
+                        <div className="h-16 bg-slate-200 rounded-2xl w-64 animate-pulse" />
+                      </div>
+                    </div>
+                  ) : messages.length === 0 ? (
+                    <div className="flex items-center justify-center h-full text-slate-400 text-xs italic">
+                      No chat messages logged in this session.
+                    </div>
+                  ) : (
+                    messages.map((msg, index) => {
+                      const isAI = msg.role === "assistant";
+                      return (
+                        <div key={index} className={`flex items-end gap-2.5 ${isAI ? "" : "justify-end"}`}>
+                          {isAI && (
+                            <div className="h-6 w-6 rounded-full bg-indigo-100 border border-indigo-200 text-indigo-600 flex items-center justify-center text-[10px] font-bold shrink-0 mb-1">
+                              AI
+                            </div>
+                          )}
+                          <div className="max-w-[75%]">
+                            {isAI && (
+                              <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider mb-0.5 ml-1">
+                                {activeSessionDetail?.agent_name || "AI Agent"}
+                              </div>
+                            )}
+                            <div
+                              className={`p-3 rounded-2xl text-xs font-medium leading-relaxed ${
+                                isAI
+                                  ? "bg-slate-100 text-slate-800 rounded-bl-none border border-slate-150"
+                                  : "bg-indigo-600 text-white rounded-br-none"
+                              }`}
+                            >
+                              {msg.content}
+                            </div>
+                            <div className={`text-[8px] text-slate-400 mt-1 font-bold ${isAI ? "text-left ml-1" : "text-right mr-1"}`}>
+                              {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : ""}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* AI Analysis Pane at the bottom */}
+                {analysisText && (
+                  <div className="border-t border-slate-100 bg-amber-50/40 p-4 shrink-0 max-h-36 overflow-y-auto">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <LuStar className="h-3.5 w-3.5 text-amber-500 fill-amber-500 shrink-0" />
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700">AI Conversation Summary & Insights</span>
+                    </div>
+                    <p className="text-[10px] leading-relaxed text-slate-600 font-semibold italic">
+                      "{analysisText}"
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 animate-fadeIn">
+      {/* Overview stats grid */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">AI Agent Activity Overview</h3>
+          <p className="text-xs text-slate-400">Interaction stats across all active business agents (excluding root agent)</p>
+        </div>
+        <button
+          onClick={onRefresh}
+          disabled={loading}
+          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition shadow-sm disabled:opacity-50"
+        >
+          <LuRefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh Stats
+        </button>
+      </div>
+
+      {loading && !data ? (
+        <div className="flex h-48 items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white text-sm text-slate-400">
+          <span className="animate-pulse">Loading AI Agent metrics...</span>
+        </div>
+      ) : (
+        <>
+          {/* Main 4 KPIs row */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div 
+              onClick={() => handleExploreCard("all")} 
+              className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm hover:shadow-md transition cursor-pointer hover:-translate-y-0.5 duration-200"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Total Pings</span>
+                <span className="p-2 rounded-xl bg-indigo-50 text-indigo-600"><LuMessageSquare className="h-4 w-4" /></span>
+              </div>
+              <div className="text-2xl font-black text-slate-800">{summary.totalPings}</div>
+              <div className="text-[10px] text-slate-400 mt-1 font-bold">Sum of chats + calls</div>
+            </div>
+
+            <div 
+              onClick={() => handleExploreCard("web")} 
+              className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm hover:shadow-md transition cursor-pointer hover:-translate-y-0.5 duration-200"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Web Chats</span>
+                <span className="p-2 rounded-xl bg-blue-50 text-blue-600"><LuGlobe className="h-4 w-4" /></span>
+              </div>
+              <div className="text-2xl font-black text-slate-800">{summary.webChats}</div>
+              <div className="text-[10px] text-slate-400 mt-1 font-bold">From website widgets</div>
+            </div>
+
+            <div 
+              onClick={() => handleExploreCard("whatsapp")} 
+              className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm hover:shadow-md transition cursor-pointer hover:-translate-y-0.5 duration-200"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">WhatsApp Chats</span>
+                <span className="p-2 rounded-xl bg-emerald-50 text-emerald-600"><LuMessageCircle className="h-4 w-4" /></span>
+              </div>
+              <div className="text-2xl font-black text-slate-800">{summary.whatsappChats}</div>
+              <div className="text-[10px] text-slate-400 mt-1 font-bold">From WhatsApp integrations</div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm hover:shadow-md transition">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Meeting Requests</span>
+                <span className="p-2 rounded-xl bg-amber-50 text-amber-600"><LuUsers className="h-4 w-4" /></span>
+              </div>
+              <div className="text-2xl font-black text-slate-800">{summary.meetingRequests}</div>
+              <div className="text-[10px] text-slate-400 mt-1 font-bold">Bookings generated in chat</div>
+            </div>
+          </div>
+
+          {/* Calls Section with Coming Soon */}
+          <div className="rounded-2xl border border-dashed border-indigo-100 bg-indigo-50/20 p-6 relative overflow-hidden animate-fadeIn">
+            <div className="absolute top-4 right-4 bg-indigo-600 text-white font-extrabold text-[9px] uppercase tracking-wider px-2 py-0.5 rounded shadow">
+              Coming Soon
+            </div>
+            <div className="mb-4">
+              <h4 className="text-xs font-black text-indigo-900 uppercase tracking-wider flex items-center gap-1.5">
+                <LuPhone className="h-4 w-4 text-indigo-600" /> Virtual Number Telephony Stats
+              </h4>
+              <p className="text-[11px] text-slate-500 mt-0.5">Track inbound/outbound calls, contact rates, and IVR flows automatically.</p>
+            </div>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 opacity-75">
+              <div className="bg-white/80 backdrop-blur rounded-xl border border-slate-100 p-4">
+                <div className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider mb-1">Contact Calls</div>
+                <div className="text-xl font-bold text-slate-400">—</div>
+              </div>
+              <div className="bg-white/80 backdrop-blur rounded-xl border border-slate-100 p-4">
+                <div className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider mb-1">New Calls</div>
+                <div className="text-xl font-bold text-slate-400">—</div>
+              </div>
+              <div className="bg-white/80 backdrop-blur rounded-xl border border-slate-100 p-4">
+                <div className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider mb-1">IVR Calls</div>
+                <div className="text-xl font-bold text-slate-400">—</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Individual Agent Performance Breakdown */}
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden animate-fadeIn">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <span className="text-sm font-bold text-slate-900">AI Agents Performance Breakdown</span>
+              <span className="text-xs font-bold text-slate-500">{breakdown.length} Active Agents</span>
+            </div>
+            {breakdown.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-xs italic">No active AI Agents configured for this workspace.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                      <th className="px-6 py-3">Agent Name</th>
+                      <th className="px-6 py-3">Total Chats</th>
+                      <th className="px-6 py-3">Web Chats</th>
+                      <th className="px-6 py-3">WhatsApp Chats</th>
+                      <th className="px-6 py-3">Meetings Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                    {breakdown.map((agent) => (
+                      <tr 
+                        key={agent.agent_id} 
+                        onClick={() => handleExploreRow(agent)}
+                        className="hover:bg-slate-50/50 transition cursor-pointer"
+                      >
+                        <td className="px-6 py-4 font-bold text-slate-900 flex items-center gap-2">
+                          <span className="p-1 rounded bg-indigo-50 text-indigo-600"><LuBot className="h-3.5 w-3.5" /></span>
+                          {agent.name}
+                        </td>
+                        <td className="px-6 py-4">{agent.totalChats}</td>
+                        <td className="px-6 py-4">{agent.webChats}</td>
+                        <td className="px-6 py-4">{agent.whatsappChats}</td>
+                        <td className="px-6 py-4 text-amber-600 font-bold">{agent.meetingRequests}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

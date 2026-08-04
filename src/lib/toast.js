@@ -21,11 +21,16 @@ const ERROR_MESSAGES = {
 
 export function resolveErrorMessage(err, fallback = "Something went wrong") {
   if (err?.code === "BACKEND_UNREACHABLE") return ERROR_MESSAGES.BACKEND_UNREACHABLE;
-  if (err?.status === 500) return "Server error. Restart backend and try again.";
-  if (err?.status === 400) return "Invalid request. Please check your input.";
+  
+  // Prioritize specific backend error messages if present in payload
+  if (err?.payload?.message) return err.payload.message;
+  
   const code = err?.payload?.error;
   if (code && ERROR_MESSAGES[code]) return ERROR_MESSAGES[code];
   if (typeof code === "string" && code !== "REQUEST_FAILED") return code;
+
+  if (err?.status === 500) return "Server error. Restart backend and try again.";
+  if (err?.status === 400) return "Invalid request. Please check your input.";
   if (err?.message && err.message !== "REQUEST_FAILED") return err.message;
   return fallback;
 }
