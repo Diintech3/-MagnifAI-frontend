@@ -128,6 +128,9 @@ export function PublicAgentChat() {
       if (res.ok) {
         const data = await res.json();
         setAgent(data);
+        if (data.name) {
+          document.title = `${data.name} | Assistant`;
+        }
       }
     } catch (e) {
       console.error("Failed to load agent configuration", e);

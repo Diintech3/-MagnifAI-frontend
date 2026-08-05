@@ -265,14 +265,37 @@ export function AppPopularityIndex() {
   const loadPings = useCallback(async () => {
     setPingsLoading(true);
     try {
-      const data = await api("/api/agents/analytics/pings", { token });
+      let queryParams = "";
+      if (timeRange === "Today") {
+        queryParams = "?filter=today";
+      } else if (timeRange === "Yesterday") {
+        queryParams = "?filter=yesterday";
+      } else if (timeRange === "All") {
+        queryParams = "";
+      } else if (timeRange === "Date Range") {
+        if (!customStartDate || !customEndDate) {
+          setPingsLoading(false);
+          return;
+        }
+        queryParams = `?filter=custom&startDate=${customStartDate}&endDate=${customEndDate}`;
+      } else {
+        // Fallback for "7 Days" or any other timeframe
+        const end = new Date();
+        const start = new Date();
+        start.setDate(end.getDate() - 7);
+        const startStr = start.toISOString().split("T")[0];
+        const endStr = end.toISOString().split("T")[0];
+        queryParams = `?filter=custom&startDate=${startStr}&endDate=${endStr}`;
+      }
+
+      const data = await api(`/api/agents/analytics/pings${queryParams}`, { token });
       setPingsData(data || null);
     } catch (e) {
       console.error("Failed to load pings data:", e.message);
     } finally {
       setPingsLoading(false);
     }
-  }, [token]);
+  }, [timeRange, customStartDate, customEndDate, token]);
 
   // Load connected social media platform details from separated modular API endpoints
   const loadSocial = useCallback(async (clearData = true) => {
@@ -919,7 +942,17 @@ export function AppPopularityIndex() {
       )}
 
       {activeTab === "pings" && (
-        <AppPingsDashboard loading={pingsLoading} data={pingsData} onRefresh={loadPings} />
+        <AppPingsDashboard 
+          loading={pingsLoading} 
+          data={pingsData} 
+          onRefresh={loadPings} 
+          timeRange={timeRange}
+          setTimeRange={setTimeRange}
+          customStartDate={customStartDate}
+          setCustomStartDate={setCustomStartDate}
+          customEndDate={customEndDate}
+          setCustomEndDate={setCustomEndDate}
+        />
       )}
 
       {/* PEOPLE SECTION */}
@@ -1459,7 +1492,17 @@ function LuShieldCheck({ className }) {
   );
 }
 
-function AppPingsDashboard({ loading, data, onRefresh }) {
+function AppPingsDashboard({ 
+  loading, 
+  data, 
+  onRefresh,
+  timeRange,
+  setTimeRange,
+  customStartDate,
+  setCustomStartDate,
+  customEndDate,
+  setCustomEndDate
+}) {
   const summary = data?.summary || {
     totalPings: 0,
     whatsappChats: 0,
@@ -1617,8 +1660,55 @@ function AppPingsDashboard({ loading, data, onRefresh }) {
     }
   };
 
+  // Compute start/end dates for local sessions filtering based on pings date presets
+  let startLimit = null;
+  let endLimit = null;
+
+  if (timeRange === "Today") {
+    const now = new Date();
+    startLimit = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    endLimit = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  } else if (timeRange === "Yesterday") {
+    const now = new Date();
+    startLimit = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    endLimit = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999);
+  } else if (timeRange === "7 Days") {
+    const now = new Date();
+    startLimit = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+    endLimit = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  } else if (timeRange === "Date Range") {
+    if (customStartDate) {
+      const parts = customStartDate.split("-");
+      if (parts.length === 3) {
+        startLimit = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      }
+    }
+    if (customEndDate) {
+      const parts = customEndDate.split("-");
+      if (parts.length === 3) {
+        endLimit = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 23, 59, 59, 999);
+      }
+    }
+  }
+
   // Filter user groups for left pane
-  const filteredUserGroups = sessions.filter(userGroup => {
+  const filteredUserGroups = sessions.map(userGroup => {
+    // Return a new userGroup object with only sessions that fit within the date limits
+    const matchingSessions = userGroup.sessions.filter(s => {
+      if (!startLimit && !endLimit) return true;
+      const sessTime = new Date(s.created_at || s.updated_at || 0);
+      if (startLimit && sessTime < startLimit) return false;
+      if (endLimit && sessTime > endLimit) return false;
+      return true;
+    });
+    return {
+      ...userGroup,
+      sessions: matchingSessions
+    };
+  }).filter(userGroup => {
+    // Only keep user groups that have at least one matching session in the date range
+    if (userGroup.sessions.length === 0) return false;
+
     // 1. Search Query filter (matches username or phone)
     const matchesSearch = 
       userGroup.user_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -1986,6 +2076,43 @@ function AppPingsDashboard({ loading, data, onRefresh }) {
         >
           <LuRefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh Stats
         </button>
+      </div>
+
+      {/* Date Filters Card */}
+      <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-xs">
+        <div className="flex flex-wrap gap-2 items-center">
+          {["Today", "Yesterday", "7 Days", "All", "Date Range"].map((t) => (
+            <button
+              key={t}
+              onClick={() => setTimeRange(t)}
+              className={`px-4 py-1.5 rounded-full text-xs font-bold transition ${
+                t === timeRange
+                  ? "bg-amber-400 border border-slate-900/10 text-slate-900 shadow-sm"
+                  : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+
+          {timeRange === "Date Range" && (
+            <div className="flex items-center gap-2 ml-2 animate-fadeIn">
+              <input
+                type="date"
+                value={customStartDate}
+                onChange={(e) => setCustomStartDate(e.target.value)}
+                className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-amber-400 font-semibold"
+              />
+              <span className="text-slate-400 text-xs">to</span>
+              <input
+                type="date"
+                value={customEndDate}
+                onChange={(e) => setCustomEndDate(e.target.value)}
+                className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-amber-400 font-semibold"
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {loading && !data ? (

@@ -1171,6 +1171,14 @@ export function AppAiAgent({ mode = "business" }) {
   const [isListening, setIsListening] = useState(false);
   const audioRef = useRef(null);
   const recognitionRef = useRef(null);
+  const chatScrollRef = useRef(null);
+
+  // Auto-scroll to bottom of chat whenever messages or loading state changes
+  useEffect(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [sandboxHistory, chatLoading]);
 
   // Load all agents
   async function loadAgents(selectFirst = false) {
@@ -2927,7 +2935,7 @@ export function AppAiAgent({ mode = "business" }) {
                           </div>
 
                           {/* Message view */}
-                          <div className="flex-1 overflow-y-auto space-y-3 bg-slate-50/60 p-3.5 rounded-xl border border-slate-200/80 mb-3 text-xs no-scrollbar scrollbar-none">
+                          <div ref={chatScrollRef} className="flex-1 overflow-y-auto space-y-3 bg-slate-50/60 p-3.5 rounded-xl border border-slate-200/80 mb-3 text-xs no-scrollbar scrollbar-none">
                             {sandboxHistory.length > 0 ? (
                               sandboxHistory.map((chat, idx) => (
                                 <div key={idx} className={`flex flex-col ${chat.role === "user" ? "items-end" : "items-start"}`}>
