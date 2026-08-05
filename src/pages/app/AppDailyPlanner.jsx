@@ -42,6 +42,8 @@ export function AppDailyPlanner() {
   const [taskCategory, setTaskCategory] = useState("Tasks");
   const [taskTime, setTaskTime] = useState("09:00");
   const [taskDate, setTaskDate] = useState("");
+  const [taskDuration, setTaskDuration] = useState(30);
+  const [taskIsRecurring, setTaskIsRecurring] = useState(false);
   
   // Conflict warning modal states
   const [conflictWarning, setConflictWarning] = useState(null);
@@ -195,6 +197,8 @@ export function AppDailyPlanner() {
     
     setTaskTime(plan.plan_time || "09:00");
     setTaskDate(plan.plan_date || "");
+    setTaskDuration(plan.duration_mins || 30);
+    setTaskIsRecurring(plan.is_recurring || false);
     setConflictWarning(null);
     setShowDrawer(true);
   };
@@ -245,7 +249,11 @@ export function AppDailyPlanner() {
           description: taskDesc,
           category: apiCategory,
           plan_date: taskDate,
-          plan_time: taskTime
+          plan_time: taskTime,
+          ...(apiCategory === "meeting" ? {
+            duration_mins: Number(taskDuration),
+            is_recurring: taskIsRecurring
+          } : {})
         }
       });
 
@@ -258,6 +266,8 @@ export function AppDailyPlanner() {
         setTaskTitle("");
         setTaskDesc("");
         setTaskCategory("Tasks");
+        setTaskDuration(30);
+        setTaskIsRecurring(false);
         
         // Refresh views
         loadDailyEvents();
@@ -549,6 +559,12 @@ export function AppDailyPlanner() {
                         <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
                           <LuClock className="h-3 w-3" />
                           {getFormatTime(plan.plan_time)}
+                          {categoryLower === "meeting" && plan.duration_mins && (
+                            <span className="text-slate-500 font-semibold"> ({plan.duration_mins} mins)</span>
+                          )}
+                          {categoryLower === "meeting" && plan.is_recurring && (
+                            <span className="text-indigo-600 font-bold ml-1"> (Recurring)</span>
+                          )}
                         </span>
                         <span className={`text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md ${labelBg}`}>
                           {plan.category ? (plan.category.charAt(0).toUpperCase() + plan.category.slice(1)) : "Task"}
@@ -741,6 +757,39 @@ export function AppDailyPlanner() {
                   className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 bg-slate-50/50"
                 />
               </div>
+
+              {taskCategory === "Meetings" && (
+                <div className="space-y-4 border-t border-slate-100 pt-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">MEETING DURATION (MINUTES)</label>
+                    <select
+                      value={taskDuration}
+                      onChange={(e) => setTaskDuration(Number(e.target.value))}
+                      className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 bg-slate-50/50"
+                    >
+                      <option value={15}>15 Minutes</option>
+                      <option value={30}>30 Minutes</option>
+                      <option value={45}>45 Minutes</option>
+                      <option value={60}>1 Hour</option>
+                      <option value={90}>1.5 Hours</option>
+                      <option value={120}>2 Hours</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="isRecurring"
+                      checked={taskIsRecurring}
+                      onChange={(e) => setTaskIsRecurring(e.target.checked)}
+                      className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded"
+                    />
+                    <label htmlFor="isRecurring" className="text-xs font-bold text-slate-600 cursor-pointer select-none">
+                      Repeat Daily (Recurring Meeting)
+                    </label>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 border-t border-slate-100 pt-4 mt-6">

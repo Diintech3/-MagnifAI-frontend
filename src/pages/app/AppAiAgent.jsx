@@ -116,6 +116,16 @@ export function AppAiAgent({ mode = "business" }) {
   const [custAuthorImage, setCustAuthorImage] = useState("");
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [custBrandName, setCustBrandName] = useState("");
+  const [custWhatsapp, setCustWhatsapp] = useState("");
+  const [custCallNumber, setCustCallNumber] = useState("");
+  const [custTemplate, setCustTemplate] = useState("");
+  const [custBgUrl, setCustBgUrl] = useState("");
+  const [custBtnLayout, setCustBtnLayout] = useState("row");
+  const [custBtnPosition, setCustBtnPosition] = useState(25);
+  const [custBtnSize, setCustBtnSize] = useState(1.0);
+  const [custSlug, setCustSlug] = useState("");
+  const [uploadingBg, setUploadingBg] = useState(false);
 
   const getAgentChatLink = (agentId, customizationObj) => {
     const defaultLink = `https://vectorize.diintech.com/agent-chat?id=${agentId}`;
@@ -163,6 +173,22 @@ export function AppAiAgent({ mode = "business" }) {
       toastFromError(err, "Failed to upload avatar image");
     } finally {
       setUploadingAvatar(false);
+    }
+  }
+
+  async function handleBgUpload(file) {
+    if (!file) return;
+    setUploadingBg(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const data = await apiForm("/api/clients/upload-image", { token, formData: fd });
+      setCustBgUrl(data.url);
+      toastSuccess("Custom background image uploaded successfully!");
+    } catch (err) {
+      toastFromError(err, "Failed to upload background image");
+    } finally {
+      setUploadingBg(false);
     }
   }
   // Q&A Pairs
@@ -1515,6 +1541,15 @@ export function AppAiAgent({ mode = "business" }) {
     setCustColor("#4f46e5");
     setCustChatLink("");
     setCustAuthorImage("");
+    setCustBrandName("");
+    setCustWhatsapp("");
+    setCustCallNumber("");
+    setCustTemplate("");
+    setCustBgUrl("");
+    setCustBtnLayout("row");
+    setCustBtnPosition(25);
+    setCustBtnSize(1.0);
+    setCustSlug("");
     setQaPairs([{ q: "", a: "" }]);
     setStagedPdfs([]);
     setStagedUrls([]);
@@ -1557,6 +1592,15 @@ export function AppAiAgent({ mode = "business" }) {
     setCustColor(cust.color || "#4f46e5");
     setCustChatLink(cleanUrl(cust.chat_link));
     setCustAuthorImage(cleanUrl(cust.author_image_url));
+    setCustBrandName(cust.brand_name || "");
+    setCustWhatsapp(cust.whatsapp_number || "");
+    setCustCallNumber(cust.call_number || "");
+    setCustTemplate(cust.template || "");
+    setCustBgUrl(cleanUrl(cust.custom_bg_url));
+    setCustBtnLayout(cust.custom_btn_layout || "row");
+    setCustBtnPosition(cust.custom_btn_position || 25);
+    setCustBtnSize(cust.custom_btn_size || 1.0);
+    setCustSlug(selectedAgent.custom_slug || "");
 
     setQaPairs(cust.qa_pairs && cust.qa_pairs.length > 0 ? cust.qa_pairs : [{ q: "", a: "" }]);
     setStagedPdfs([]);
@@ -1581,6 +1625,11 @@ export function AppAiAgent({ mode = "business" }) {
       const colorVal = (custColor || "").trim();
       const chatLinkVal = (custChatLink || "").trim();
       const authorImgVal = (custAuthorImage || "").trim();
+      const brandNameVal = (custBrandName || "").trim();
+      const whatsappVal = (custWhatsapp || "").trim();
+      const callNumVal = (custCallNumber || "").trim();
+      const bgUrlVal = (custBgUrl || "").trim();
+      const slugVal = (custSlug || "").trim();
 
       if (!nameVal) {
         toastFromError(new Error("Agent name is required"));
@@ -1605,11 +1654,20 @@ export function AppAiAgent({ mode = "business" }) {
           ...(voiceName ? { voice_name: voiceName } : {}),
           ...(voiceApiVal ? { api_key: voiceApiVal } : {})
         },
+        custom_slug: slugVal,
         customization: {
           ...(logoUrlVal ? { logo_url: logoUrlVal } : {}),
           ...(colorVal ? { color: colorVal } : {}),
           ...(chatLinkVal ? { chat_link: chatLinkVal } : {}),
           ...(authorImgVal ? { author_image_url: authorImgVal } : {}),
+          brand_name: brandNameVal,
+          whatsapp_number: whatsappVal,
+          call_number: callNumVal,
+          template: custTemplate,
+          custom_bg_url: bgUrlVal,
+          custom_btn_layout: custBtnLayout,
+          custom_btn_position: Number(custBtnPosition),
+          custom_btn_size: Number(custBtnSize),
           qa_pairs: (qaPairs || []).filter(pair => pair && pair.q && pair.a && pair.q.trim() && pair.a.trim())
         },
         datastores: []
@@ -1873,17 +1931,30 @@ export function AppAiAgent({ mode = "business" }) {
                       <LuBot className="h-5 w-5 text-indigo-600" />
                       {agent.name}
                     </div>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleAgentDelete(agent.agent_id);
-                      }}
-                      className="text-red-500 hover:text-red-750 hover:bg-red-50 p-1.5 rounded-lg transition cursor-pointer"
-                      title="Delete Agent"
-                    >
-                      <LuTrash2 className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.open(`/share-agent-chat.html?id=${agent.agent_id}&preview=true`, "_blank");
+                        }}
+                        className="text-indigo-600 hover:text-indigo-850 hover:bg-indigo-50 p-1.5 rounded-lg transition cursor-pointer flex items-center justify-center"
+                        title="Preview Landing Page"
+                      >
+                        👁️
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAgentDelete(agent.agent_id);
+                        }}
+                        className="text-red-500 hover:text-red-750 hover:bg-red-50 p-1.5 rounded-lg transition cursor-pointer flex items-center justify-center"
+                        title="Delete Agent"
+                      >
+                        <LuTrash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                   <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
                     {agent.description || "No description provided."}
@@ -1941,12 +2012,20 @@ export function AppAiAgent({ mode = "business" }) {
 
             <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-3 md:mt-0">
               {selectedAgent && (
-                <button
-                  onClick={() => setShowSpecsModal(true)}
-                  className="flex items-center gap-2 bg-white hover:bg-slate-100 border border-slate-350 text-indigo-750 font-bold text-xs py-2 sm:py-2.5 px-3 sm:px-4 rounded-lg shadow-sm transition cursor-pointer"
-                >
-                  <LuBot className="h-4 w-4 text-indigo-600" /> View Specs Profile
-                </button>
+                <>
+                  <button
+                    onClick={() => window.open(`/share-agent-chat.html?id=${selectedAgentId}&preview=true`, "_blank")}
+                    className="flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-750 font-bold text-xs py-2 sm:py-2.5 px-3 sm:px-4 rounded-lg shadow-sm transition cursor-pointer"
+                  >
+                    👁️ Preview Layout
+                  </button>
+                  <button
+                    onClick={() => setShowSpecsModal(true)}
+                    className="flex items-center gap-2 bg-white hover:bg-slate-100 border border-slate-350 text-indigo-750 font-bold text-xs py-2 sm:py-2.5 px-3 sm:px-4 rounded-lg shadow-sm transition cursor-pointer"
+                  >
+                    <LuBot className="h-4 w-4 text-indigo-600" /> View Specs Profile
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -3694,6 +3773,7 @@ export function AppAiAgent({ mode = "business" }) {
               {formActiveTab === "custom" && (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Brand Logo */}
                     <div>
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Brand Logo Image</label>
                       <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
@@ -3726,6 +3806,8 @@ export function AppAiAgent({ mode = "business" }) {
                         </div>
                       )}
                     </div>
+
+                    {/* Author Avatar */}
                     <div>
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Author Image Avatar</label>
                       <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
@@ -3758,6 +3840,42 @@ export function AppAiAgent({ mode = "business" }) {
                         </div>
                       )}
                     </div>
+
+                    {/* Custom Background Image */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Custom Background Image</label>
+                      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                        <input
+                          type="text"
+                          placeholder="e.g. https://domain.com/background.jpg"
+                          value={custBgUrl}
+                          onChange={(e) => setCustBgUrl(e.target.value)}
+                          className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 flex-1 min-w-0 shadow-xs"
+                        />
+                        <label className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold px-3 py-2.5 rounded-lg transition cursor-pointer shrink-0 flex items-center justify-center gap-1">
+                          <LuUpload className="h-3.5 w-3.5" />
+                          {uploadingBg ? "Uploading..." : "Upload Image"}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files[0]) {
+                                handleBgUpload(e.target.files[0]);
+                              }
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                      {custBgUrl && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <img src={mediaUrl(custBgUrl)} alt="BG Preview" className="h-8 w-8 object-cover rounded border border-slate-200 bg-slate-50 p-0.5" />
+                          <span className="text-[10px] text-emerald-600 font-semibold">Background Uploaded</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Chat Link Path */}
                     <div>
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Chat Link Path</label>
                       <input
@@ -3768,6 +3886,8 @@ export function AppAiAgent({ mode = "business" }) {
                         className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 w-full shadow-xs"
                       />
                     </div>
+
+                    {/* Theme Brand Color */}
                     <div>
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Theme Brand Color</label>
                       <div className="flex gap-2 items-center">
@@ -3784,6 +3904,111 @@ export function AppAiAgent({ mode = "business" }) {
                           className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 w-28 shadow-xs"
                         />
                       </div>
+                    </div>
+
+                    {/* Brand Name */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Brand Name Display</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. My Premium Brand"
+                        value={custBrandName}
+                        onChange={(e) => setCustBrandName(e.target.value)}
+                        className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 w-full shadow-xs"
+                      />
+                    </div>
+
+                    {/* Custom URL Slug */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Custom Web URL Slug</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. support-agent-custom-page"
+                        value={custSlug}
+                        onChange={(e) => setCustSlug(e.target.value)}
+                        className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 w-full shadow-xs"
+                      />
+                    </div>
+
+                    {/* WhatsApp */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">WhatsApp Number (Without +)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 919876543210"
+                        value={custWhatsapp}
+                        onChange={(e) => setCustWhatsapp(e.target.value)}
+                        className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 w-full shadow-xs"
+                      />
+                    </div>
+
+                    {/* Call Number */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Call Phone Number (Without +)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 919876543210"
+                        value={custCallNumber}
+                        onChange={(e) => setCustCallNumber(e.target.value)}
+                        className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 w-full shadow-xs"
+                      />
+                    </div>
+
+                    {/* Landing Page Template */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Landing Page Theme Template</label>
+                      <select
+                        value={custTemplate}
+                        onChange={(e) => setCustTemplate(e.target.value)}
+                        className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 w-full shadow-xs focus:outline-none"
+                      >
+                        <option value="">Standard (Default)</option>
+                        <option value="template1">Template 1</option>
+                        <option value="template2">Template 2</option>
+                        <option value="template3">Template 3</option>
+                        <option value="custom">Custom Background Image</option>
+                      </select>
+                    </div>
+
+                    {/* Custom Button Layout */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Custom Button Layout Style</label>
+                      <select
+                        value={custBtnLayout}
+                        onChange={(e) => setCustBtnLayout(e.target.value)}
+                        className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 w-full shadow-xs focus:outline-none"
+                      >
+                        <option value="row">Row (Side-by-Side)</option>
+                        <option value="stacked">Stacked (Vertical columns)</option>
+                        <option value="small_side">Small Side Panel</option>
+                      </select>
+                    </div>
+
+                    {/* Button Offset */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Button Offset Position (px: 2 to 250)</label>
+                      <input
+                        type="number"
+                        min={2}
+                        max={250}
+                        value={custBtnPosition}
+                        onChange={(e) => setCustBtnPosition(Number(e.target.value))}
+                        className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 w-full shadow-xs"
+                      />
+                    </div>
+
+                    {/* Button Scale Size */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Button Scale Size (0.5 to 2.0)</label>
+                      <input
+                        type="number"
+                        step={0.1}
+                        min={0.5}
+                        max={2.0}
+                        value={custBtnSize}
+                        onChange={(e) => setCustBtnSize(Number(e.target.value))}
+                        className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 w-full shadow-xs"
+                      />
                     </div>
                   </div>
                 </div>
