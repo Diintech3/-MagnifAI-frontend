@@ -156,6 +156,7 @@ function AppRoutes() {
         }
       />
       <Route path="/agent-chat" element={<PublicAgentChat />} />
+      <Route path="/share-agent-chat.html" element={<PublicAgentChat />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );

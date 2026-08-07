@@ -128,7 +128,9 @@ export function PublicAgentChat() {
       if (res.ok) {
         const data = await res.json();
         setAgent(data);
-        if (data.name) {
+        if (data.customization?.brand_name) {
+          document.title = data.customization.brand_name;
+        } else if (data.name) {
           document.title = `${data.name} | Assistant`;
         }
       }
@@ -318,7 +320,7 @@ export function PublicAgentChat() {
 
       if (!res.ok) throw new Error("Upload failed");
       const data = await res.json();
-      
+
       setStagedFile({
         name: file.name,
         type: file.type,
@@ -472,7 +474,7 @@ export function PublicAgentChat() {
       try {
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
-      } catch (e) {}
+      } catch (e) { }
       audioRef.current = null;
     }
     setIsPlayingAudio(false);
@@ -774,23 +776,23 @@ export function PublicAgentChat() {
   function stopRecording() {
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (processorRef.current) {
-      try { processorRef.current.disconnect(); } catch (e) {}
+      try { processorRef.current.disconnect(); } catch (e) { }
       processorRef.current = null;
     }
     if (audioContextRef.current) {
-      try { audioContextRef.current.close(); } catch (e) {}
+      try { audioContextRef.current.close(); } catch (e) { }
       audioContextRef.current = null;
     }
     if (mediaStreamRef.current) {
-      try { mediaStreamRef.current.getTracks().forEach(track => track.stop()); } catch (e) {}
+      try { mediaStreamRef.current.getTracks().forEach(track => track.stop()); } catch (e) { }
       mediaStreamRef.current = null;
     }
     if (wsRef.current) {
-      try { wsRef.current.close(); } catch (e) {}
+      try { wsRef.current.close(); } catch (e) { }
       wsRef.current = null;
     }
     if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch (e) {}
+      try { recognitionRef.current.stop(); } catch (e) { }
       recognitionRef.current = null;
     }
     setIsRecording(false);
@@ -799,7 +801,7 @@ export function PublicAgentChat() {
   const brandColor = agent?.customization?.color || "#4f46e5";
 
   if (loadingAgent) {
-    const assistantName = agent?.name || "Vijay AI Assistant";
+    const assistantName = agent?.customization?.brand_name || agent?.name || "AI Assistant";
     return (
       <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-950 text-white p-6 z-50 overflow-hidden">
         {/* Ambient background glow */}
@@ -850,7 +852,7 @@ export function PublicAgentChat() {
 
   return (
     <div className="fixed inset-0 flex flex-col h-[100dvh] w-full bg-slate-950 text-slate-100 font-sans overflow-hidden">
-      
+
       {/* Brand Header (Only shown when activeScreenMode !== "welcome") */}
       {activeScreenMode !== "welcome" && (
         <header className="sticky top-0 bg-slate-900/95 backdrop-blur-md text-white px-3 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between border-b border-slate-800/80 shadow-lg shrink-0 z-30 transition-all duration-300 animate-fade-in">
@@ -863,7 +865,7 @@ export function PublicAgentChat() {
               )}
             </div>
             <div className="min-w-0">
-              <h1 className="text-xs sm:text-base font-extrabold truncate max-w-[140px] xs:max-w-[180px] sm:max-w-md text-slate-100">{agent?.name || "AI Support Agent"}</h1>
+              <h1 className="text-xs sm:text-base font-extrabold truncate max-w-[140px] xs:max-w-[180px] sm:max-w-md text-slate-100">{agent?.customization?.brand_name || agent?.name || "AI Support Agent"}</h1>
               <div className="flex items-center gap-1.5 text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-wider truncate">
                 <span className="flex items-center gap-1 text-emerald-400 shrink-0">
                   <span className="h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-emerald-500 animate-ping inline-block"></span> Online Assistant
@@ -895,13 +897,12 @@ export function PublicAgentChat() {
       )}
 
       {/* Main Container */}
-      <main className={`flex-1 min-h-0 flex flex-col w-full mx-auto shadow-2xl overflow-hidden relative transition-all duration-300 ${
-        activeScreenMode === "welcome" ? "bg-slate-950" : "max-w-4xl lg:max-w-5xl bg-slate-900/40 border-x border-slate-800/60"
-      }`}>
+      <main className={`flex-1 min-h-0 flex flex-col w-full mx-auto shadow-2xl overflow-hidden relative transition-all duration-300 ${activeScreenMode === "welcome" ? "bg-slate-950" : "max-w-4xl lg:max-w-5xl bg-slate-900/40 border-x border-slate-800/60"
+        }`}>
         {activeScreenMode === "welcome" ? (
           /* ==================== MagnifAI Signature Dark Glassmorphic QR Landing ==================== */
           <div className="flex-1 flex flex-col justify-center items-center p-6 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 relative overflow-y-auto min-h-0 select-none no-scrollbar">
-            
+
             {/* Ambient Background Glowing Orbs */}
             <div className="absolute -top-24 -left-24 w-80 h-80 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none animate-pulse"></div>
             <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-purple-600/20 rounded-full blur-3xl pointer-events-none animate-pulse"></div>
@@ -940,7 +941,7 @@ export function PublicAgentChat() {
                 Hello !
               </h2>
               <h1 className="text-lg sm:text-xl font-extrabold text-slate-100">
-                I am <span className="text-indigo-400 drop-shadow-[0_0_12px_rgba(99,102,241,0.6)]">{agent?.name || "Vijay AI Assistant"}</span>
+                I am <span className="text-indigo-400 drop-shadow-[0_0_12px_rgba(99,102,241,0.6)]">{agent?.customization?.brand_name || agent?.name || "Vijay AI Assistant"}</span>
               </h1>
               <p className="text-[11px] sm:text-xs text-slate-400 font-medium leading-relaxed pt-1.5 px-2">
                 {agent?.customization?.welcome_description || "I am here to answer your questions, provide smart solutions and help you get things done."}
@@ -1062,8 +1063,8 @@ export function PublicAgentChat() {
             <div className="absolute bottom-1/4 right-1/4 w-60 h-60 bg-emerald-500/15 rounded-full blur-3xl animate-pulse delay-1000"></div>
 
             {/* Header info */}
-            <div className="text-center mt-8 z-10">
-              <h2 className="text-lg font-bold text-slate-100">{agent?.name || "AI Assistant"}</h2>
+             <div className="text-center mt-8 z-10">
+               <h2 className="text-lg font-bold text-slate-100">{agent?.customization?.brand_name || agent?.name || "AI Assistant"}</h2>
               <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mt-1">{agent?.category || "Interactive"} Call Mode</p>
             </div>
 
@@ -1083,7 +1084,7 @@ export function PublicAgentChat() {
                 )}
 
                 {/* Core assistant visual circle */}
-                <div 
+                <div
                   onClick={() => {
                     if (isPlayingAudio) {
                       stopAiSpeech();
@@ -1091,17 +1092,15 @@ export function PublicAgentChat() {
                       startRecording();
                     }
                   }}
-                  className={`w-24 h-24 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 border-2 overflow-hidden ${
-                    isPlayingAudio ? "cursor-pointer hover:scale-105 active:scale-95" : ""
-                  } ${
-                    chatLoading 
-                      ? "bg-slate-800 border-slate-600" 
-                      : isPlayingAudio 
-                        ? "bg-indigo-600 border-indigo-400 shadow-indigo-500/20" 
-                        : isRecording 
-                          ? "bg-emerald-600 border-emerald-400 shadow-emerald-500/20 animate-pulse" 
+                  className={`w-24 h-24 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 border-2 overflow-hidden ${isPlayingAudio ? "cursor-pointer hover:scale-105 active:scale-95" : ""
+                    } ${chatLoading
+                      ? "bg-slate-800 border-slate-600"
+                      : isPlayingAudio
+                        ? "bg-indigo-600 border-indigo-400 shadow-indigo-500/20"
+                        : isRecording
+                          ? "bg-emerald-600 border-emerald-400 shadow-emerald-500/20 animate-pulse"
                           : "bg-slate-900 border-slate-700"
-                  }`}
+                    }`}
                 >
                   {agent?.customization?.author_image_url || agent?.customization?.logo_url ? (
                     <img
@@ -1117,15 +1116,14 @@ export function PublicAgentChat() {
 
               {/* Status Text */}
               <div className="mt-8 text-center min-h-[40px]">
-                <p className={`text-sm font-bold tracking-wide transition-all ${
-                  chatLoading 
-                    ? "text-indigo-400" 
-                    : isPlayingAudio 
-                      ? "text-indigo-300" 
-                      : isRecording 
-                        ? "text-emerald-400" 
+                <p className={`text-sm font-bold tracking-wide transition-all ${chatLoading
+                    ? "text-indigo-400"
+                    : isPlayingAudio
+                      ? "text-indigo-300"
+                      : isRecording
+                        ? "text-emerald-400"
                         : "text-slate-400"
-                }`}>
+                  }`}>
                   {chatLoading ? "Thinking..." : isPlayingAudio ? "Speaking... Speak or tap to interrupt" : isRecording ? "Listening... speak now" : "Tap Mic to Start"}
                 </p>
                 {/* Live transcript indicator */}
@@ -1154,11 +1152,10 @@ export function PublicAgentChat() {
                       startRecording();
                     }
                   }}
-                  className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 cursor-pointer ${
-                    isRecording 
-                      ? "bg-emerald-500 text-white hover:bg-emerald-600 shadow-emerald-500/10" 
+                  className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 cursor-pointer ${isRecording
+                      ? "bg-emerald-500 text-white hover:bg-emerald-600 shadow-emerald-500/10"
                       : "bg-white/10 text-white border border-white/20 hover:bg-white/20"
-                  }`}
+                    }`}
                   title={isRecording ? "Mute Mic" : "Unmute Mic"}
                 >
                   <LuMic className="h-6 w-6" />
@@ -1200,9 +1197,8 @@ export function PublicAgentChat() {
                   <div key={idx} className={`flex flex-col ${isUser ? "items-end" : "items-start"} transition-all duration-300 transform animate-fade-in`}>
                     <div
                       style={isUser ? { backgroundColor: brandColor, color: textColor } : { backgroundColor: "#1e293b", color: textColor, borderWidth: "1px", borderColor: "#334155" }}
-                      className={`max-w-3xl px-4.5 py-2.5 sm:px-5 sm:py-3 rounded-2xl shadow-md leading-normal text-sm sm:text-base font-medium ${
-                        isUser ? "rounded-tr-xs" : "rounded-tl-xs"
-                      }`}
+                      className={`max-w-3xl px-4.5 py-2.5 sm:px-5 sm:py-3 rounded-2xl shadow-md leading-normal text-sm sm:text-base font-medium ${isUser ? "rounded-tr-xs" : "rounded-tl-xs"
+                        }`}
                     >
                       {chat.attachment && (
                         <div className="flex items-center gap-2 bg-black/15 border border-white/10 px-3 py-1.5 rounded-xl mb-1.5 text-xs text-inherit w-fit">
@@ -1239,7 +1235,7 @@ export function PublicAgentChat() {
 
             {/* Floating Input Dock (Sticky Pinned to Bottom for 0% Mobile Scroll Access) */}
             <div className="p-2.5 sm:p-4 bg-slate-950/95 backdrop-blur-lg border-t border-slate-800 shadow-2xl flex flex-col gap-2 shrink-0 sticky bottom-0 z-30">
-              
+
               {/* Creator Action Button Banner */}
               {activeActionButton && (
                 <div className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white p-3 rounded-xl flex items-center justify-between shadow-lg animate-pulse">
@@ -1280,9 +1276,8 @@ export function PublicAgentChat() {
                         key={idx}
                         type="button"
                         onClick={() => sendTextMessage(qa.q)}
-                        className={`shrink-0 bg-slate-800/90 hover:bg-indigo-600 hover:text-white border border-slate-700/80 text-xs sm:text-sm font-semibold text-slate-200 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-xl transition-all duration-200 cursor-pointer shadow-sm hover:scale-[1.02] active:scale-[0.98] snap-start ${
-                          idx >= 3 ? "hidden md:inline-block" : "inline-block"
-                        }`}
+                        className={`shrink-0 bg-slate-800/90 hover:bg-indigo-600 hover:text-white border border-slate-700/80 text-xs sm:text-sm font-semibold text-slate-200 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-xl transition-all duration-200 cursor-pointer shadow-sm hover:scale-[1.02] active:scale-[0.98] snap-start ${idx >= 3 ? "hidden md:inline-block" : "inline-block"
+                          }`}
                       >
                         {qa.q}
                       </button>

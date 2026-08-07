@@ -297,20 +297,21 @@ export function AppScriptsApproval() {
     if (!objectionScript || !objectionNote.trim()) return;
     setSaving(true);
     try {
+      const targetStatus = objectionScript.approvalStatus === "Recorded" ? "Retake" : "Objection";
       await api(`/api/app/scripts/${objectionScript.scriptId}/status`, {
         method: "PUT",
         token,
-        body: { status: "Objection", note: objectionNote.trim() }
+        body: { status: targetStatus, note: objectionNote.trim() }
       });
-      toastSuccess("Objection raised successfully. Script sent back for re-editing.");
+      toastSuccess(targetStatus === "Retake" ? "Raw video rejected. Creator notified for retake." : "Objection raised successfully. Script sent back for re-editing.");
       if (viewScript && viewScript.scriptId === objectionScript.scriptId) {
-        setViewScript(prev => ({ ...prev, approvalStatus: "Objection" }));
+        setViewScript(prev => ({ ...prev, approvalStatus: targetStatus }));
       }
       setObjectionScript(null);
       setObjectionNote("");
       loadData();
     } catch (err) {
-      toastFromError(err, "Failed to raise objection");
+      toastFromError(err, "Failed to submit feedback");
     } finally {
       setSaving(false);
     }
@@ -549,8 +550,8 @@ export function AppScriptsApproval() {
               </div>
 
               {/* Status filter tabs for Creator list */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-150">
-                {["All", "Pending", "Submitted", "Editing", "Edited", "Approved", "Objection", "Rejected"].map(tab => {
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-10 gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-150">
+                {["All", "Pending", "Recorded", "Retake", "Submitted", "Editing", "Edited", "Approved", "Objection", "Rejected"].map(tab => {
                   const count = viewScript.submissions?.filter(sub => {
                     if (tab === "All") return true;
                     if (tab === "Pending") return sub.approvalStatus === "Pending" || sub.approvalStatus === "Waiting" || sub.approvalStatus === "Draft";
@@ -819,8 +820,40 @@ export function AppScriptsApproval() {
                   </div>
                 </div>
 
+                {/* Admin Raw Video Approval Panel */}
+                {activeSub.approvalStatus === "Recorded" && (
+                  <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-center justify-between gap-4">
+                    <div>
+                      <span className="block text-xs font-bold text-amber-900">
+                        Approve Raw Video Submission
+                      </span>
+                      <span className="block text-[10px] text-amber-650 mt-0.5 font-medium">
+                        Please review the raw video. Approve to allow Creator to request AI Editing, or Reject with feedback.
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={updatingId === activeSub.scriptId}
+                        onClick={() => { updateStatus(activeSub.scriptId, "Submitted"); }}
+                        className="flex items-center gap-1 rounded-lg bg-green-600 hover:bg-green-700 px-3.5 py-1.5 text-xs font-bold text-white transition shadow cursor-pointer"
+                      >
+                        <LuCheck className="h-3.5 w-3.5" /> Approve Raw
+                      </button>
+                      <button
+                        type="button"
+                        disabled={updatingId === activeSub.scriptId}
+                        onClick={() => { setObjectionScript(activeSub); }}
+                        className="flex items-center gap-1 rounded-lg bg-red-650 hover:bg-red-755 px-3.5 py-1.5 text-xs font-bold text-white transition shadow cursor-pointer"
+                      >
+                        <LuX className="h-3.5 w-3.5" /> Reject Raw
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* AI Edit Request Panel for Submitted raw videos */}
-                {["Pending", "Submitted", "Waiting", "Draft", "Objection"].includes(activeSub.approvalStatus) && activeSub.rawVideoUrl && (
+                {activeSub.approvalStatus === "Submitted" && activeSub.rawVideoUrl && (
                   <div className="space-y-4">
                     {/* Failure details if previous processing failed */}
                     {activeSub.processingStatus === "failed" && (

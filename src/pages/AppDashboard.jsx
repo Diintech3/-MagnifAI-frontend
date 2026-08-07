@@ -16,6 +16,7 @@ import { AppProfile } from "./app/AppProfile";
 import { AppDistributionQueue } from "./app/AppDistributionQueue";
 import { AppCalendar } from "./app/AppCalendar";
 import { AppPopularityIndex } from "./app/AppPopularityIndex";
+import { AppPeople } from "./app/AppPeople";
 import { AppContents } from "./app/AppContents";
 import { AppCreateContent } from "./app/AppCreateContent";
 import { AppContentDetail } from "./app/AppContentDetail";
@@ -182,6 +183,7 @@ export function AppDashboard() {
         <Route path="distribution"     element={<AppDistributionQueue />} />
         <Route path="calendar"         element={<AppCalendar />} />
         <Route path="popularity"       element={<AppPopularityIndex />} />
+        <Route path="people"           element={<AppPeople />} />
         <Route path="social"           element={<AppSocialMedia />} />
         <Route path="news"             element={<AppNews />} />
         <Route path="digital-mentions" element={<AppDigitalMentions />} />

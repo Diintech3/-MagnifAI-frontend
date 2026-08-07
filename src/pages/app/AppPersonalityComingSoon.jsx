@@ -126,12 +126,22 @@ export function AppPersonalityComingSoon() {
     fd.append("video", file);
 
     try {
-      await apiForm(`/api/personality/scripts/${scriptId}/upload-video`, {
+      const res = await apiForm(`/api/personality/scripts/${scriptId}/upload-video`, {
         method: "POST",
         token,
         formData: fd
       });
-      toastSuccess("Raw video uploaded successfully! Initiated AI video processing engine.");
+      toastSuccess("Raw video uploaded successfully! Ready for your review.");
+      
+      // Update local state instead of closing workspace
+      if (res && res.rawVideoUrl) {
+        setViewScript(prev => ({
+          ...prev,
+          rawVideoUrl: res.rawVideoUrl,
+          approvalStatus: res.approvalStatus,
+          processingStatus: res.processingStatus
+        }));
+      }
       loadScripts();
     } catch (err) {
       toastFromError(err, "Failed to upload raw video");
@@ -397,35 +407,19 @@ export function AppPersonalityComingSoon() {
   }
 
   const renderWorkflowProgress = (s) => {
-    const isAdmin = s.createdByAdmin;
-    
-    let steps = [];
+    const steps = ["Draft", "Recorded", "Submitted (Approved Raw)", "AI Editing", "Finalized"];
     let currentStepIndex = 0;
     
-    if (isAdmin) {
-      steps = ["Assigned", "Accepted", "Uploaded", "AI Edit", "Review"];
-      if (s.approvalStatus === "Pending" || s.approvalStatus === "Waiting") {
-        currentStepIndex = 0;
-      } else if (s.approvalStatus === "Submitted" && !s.rawVideoUrl) {
-        currentStepIndex = 1;
-      } else if (s.approvalStatus === "Submitted" && s.rawVideoUrl) {
-        currentStepIndex = 2;
-      } else if (s.approvalStatus === "Editing") {
-        currentStepIndex = 3;
-      } else if (["Edited", "Objection", "Approved", "Rejected"].includes(s.approvalStatus)) {
-        currentStepIndex = 4;
-      }
-    } else {
-      steps = ["Draft", "Uploaded", "AI Edit", "Approved"];
-      if (s.approvalStatus === "Draft") {
-        currentStepIndex = 0;
-      } else if (s.rawVideoUrl && s.approvalStatus !== "Editing" && s.approvalStatus !== "Approved") {
-        currentStepIndex = 1;
-      } else if (s.approvalStatus === "Editing") {
-        currentStepIndex = 2;
-      } else if (s.approvalStatus === "Approved") {
-        currentStepIndex = 3;
-      }
+    if (s.approvalStatus === "Draft" || s.approvalStatus === "Pending" || s.approvalStatus === "Waiting") {
+      currentStepIndex = 0;
+    } else if (s.approvalStatus === "Recorded" || s.approvalStatus === "Retake") {
+      currentStepIndex = 1;
+    } else if (s.approvalStatus === "Submitted") {
+      currentStepIndex = 2;
+    } else if (s.approvalStatus === "Editing" || s.approvalStatus === "Edited") {
+      currentStepIndex = 3;
+    } else if (["Approved", "Rejected", "Objection"].includes(s.approvalStatus)) {
+      currentStepIndex = 4;
     }
 
     return (
@@ -466,17 +460,23 @@ export function AppPersonalityComingSoon() {
       return "👉 Next Step: Click 'Raw Video' tab to record or upload your video.";
     }
 
-    if (s.approvalStatus === "Pending" || s.approvalStatus === "Waiting" || s.approvalStatus === "Draft") {
-      return "👉 Next Step: Preview your video on 'Raw Video' tab and click 'Submit to Admin' to send it.";
+    if (s.approvalStatus === "Draft" || s.approvalStatus === "Pending" || s.approvalStatus === "Waiting") {
+      return "👉 Next Step: Preview your video on 'Raw Video' tab and decide next action.";
+    }
+    if (s.approvalStatus === "Recorded") {
+      return "⏳ Raw video uploaded. Awaiting Admin raw video approval to enable AI Edit.";
+    }
+    if (s.approvalStatus === "Retake") {
+      return "❌ Raw video rejected by Admin. Please read the note below and upload a retake.";
     }
     if (s.approvalStatus === "Submitted") {
-      return "⏳ Awaiting Admin review to trigger AI Video Editing.";
+      return "🎉 Raw video approved! Click 'Request AI Edit' below to start AI processing.";
     }
     if (s.approvalStatus === "Editing") {
       return "⚡ AI Video Editing is processing in the background. Please wait...";
     }
     if (s.approvalStatus === "Edited") {
-      return "🎉 AI Edited video is ready! Play it above and click 'Accept' or request a change.";
+      return "🎉 AI Edited video is ready! Play it on 'Review & Action' tab and Accept or Reject.";
     }
     if (s.approvalStatus === "Approved") {
       return "✅ Video Approved & Finalized successfully!";
@@ -485,7 +485,7 @@ export function AppPersonalityComingSoon() {
       return "⚠️ Objection note received. Please re-upload or adjust video on 'Raw Video' tab.";
     }
     if (s.approvalStatus === "Rejected") {
-      return "❌ Video Rejected by Admin.";
+      return "❌ Video Rejected.";
     }
     return "";
   };
@@ -677,7 +677,7 @@ export function AppPersonalityComingSoon() {
                           <input
                             type="file"
                             accept="video/*"
-                            onChange={(e) => { handleVideoUpload(viewScript.scriptId, e); setViewScript(null); }}
+                            onChange={(e) => handleVideoUpload(viewScript.scriptId, e)}
                             className="hidden"
                           />
                         </label>
@@ -699,19 +699,90 @@ export function AppPersonalityComingSoon() {
                   )}
                 </div>
 
-                {viewScript.rawVideoUrl && (viewScript.approvalStatus === "Pending" || viewScript.approvalStatus === "Draft" || viewScript.approvalStatus === "Objection") && (
-                  <div className="bg-orange-50/50 p-4 rounded-xl border border-orange-100 flex items-center justify-between gap-4 max-w-xl mx-auto mt-4 shrink-0">
+                {viewScript.rawVideoUrl && ["Draft", "Pending", "Waiting", "Recorded", "Retake", "Submitted"].includes(viewScript.approvalStatus) && (
+                  <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 max-w-xl mx-auto mt-4 space-y-4">
                     <div>
-                      <span className="block text-xs font-bold text-orange-950">Ready to Submit?</span>
-                      <span className="block text-[10px] text-orange-600 mt-0.5">Please review your video above. Once finalized, submit it for review.</span>
+                      <span className="block text-sm font-bold text-slate-800">What would you like to do with this video?</span>
+                      <span className="block text-xs text-slate-500 mt-1">Select one of the options below to proceed.</span>
                     </div>
-                    <button
-                      disabled={updatingId === viewScript.scriptId}
-                      onClick={() => { updateScriptStatus(viewScript.scriptId, "Submitted"); setViewScript(null); }}
-                      className="rounded-lg bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 text-xs font-bold transition shadow-xs cursor-pointer shrink-0"
-                    >
-                      Submit
-                    </button>
+
+                    {viewScript.approvalStatus === "Retake" && viewScript.objectionNote && (
+                      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2.5 rounded-xl text-xs whitespace-pre-wrap font-sans">
+                        <strong>⚠️ Raw Video Rejected:</strong> {viewScript.objectionNote}
+                      </div>
+                    )}
+
+                    {viewScript.approvalStatus === "Recorded" && (
+                      <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-2.5 rounded-xl text-xs font-medium">
+                        ⏳ Raw video is uploaded. Awaiting Admin review and approval before you can request AI editing.
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <button
+                        type="button"
+                        disabled={updatingId === viewScript.scriptId}
+                        onClick={async () => {
+                          if (window.confirm("Are you sure you want to retake and delete this video?")) {
+                            setUpdatingId(viewScript.scriptId);
+                            try {
+                              await api(`/api/personality/scripts/${viewScript.scriptId}/status`, {
+                                method: "PUT",
+                                token,
+                                body: { status: "Pending", clearVideo: true }
+                              });
+                              toastSuccess("Video cleared. Ready for retake.");
+                              setViewScript(prev => ({
+                                ...prev,
+                                rawVideoUrl: null,
+                                processedVideoUrl: null,
+                                viralVideoUrl: null,
+                                processingStatus: "none",
+                                processingProgress: 0,
+                                objectionNote: null,
+                                approvalStatus: "Draft"
+                              }));
+                              loadScripts();
+                            } catch (e) {
+                              toastFromError(e, "Failed to retake video");
+                            } finally {
+                              setUpdatingId(null);
+                            }
+                          }
+                        }}
+                        className="rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-3 py-2.5 text-xs font-bold transition cursor-pointer text-center"
+                      >
+                        Retake / Delete
+                      </button>
+                      <button
+                        type="button"
+                        disabled={updatingId === viewScript.scriptId}
+                        onClick={async () => {
+                          if (window.confirm("Approve this raw video directly without AI Editing?")) {
+                            await updateScriptStatus(viewScript.scriptId, "Approved");
+                            setViewScript(null);
+                          }
+                        }}
+                        className="rounded-xl bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 px-3 py-2.5 text-xs font-bold transition cursor-pointer text-center"
+                      >
+                        Approve (Direct Share)
+                      </button>
+                      <button
+                        type="button"
+                        disabled={viewScript.approvalStatus !== "Submitted" || updatingId === viewScript.scriptId}
+                        onClick={async () => {
+                          await updateScriptStatus(viewScript.scriptId, "Editing");
+                          setViewScript(null);
+                        }}
+                        className={`rounded-xl px-3 py-2.5 text-xs font-bold transition text-center ${
+                          viewScript.approvalStatus === "Submitted"
+                            ? "bg-indigo-600 hover:bg-indigo-755 text-white shadow cursor-pointer"
+                            : "bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed"
+                        }`}
+                      >
+                        {viewScript.approvalStatus === "Recorded" ? "Awaiting Approval" : "Request AI Edit"}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -810,7 +881,7 @@ export function AppPersonalityComingSoon() {
                     </div>
 
                     <div className="flex flex-col">
-                      {(viewScript.processedVideoUrl || viewScript.viralVideoUrl) ? (
+                      {(viewScript.processedVideoUrl || viewScript.viralVideoUrl || viewScript.rawVideoUrl) ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 justify-center">
                           {viewScript.processedVideoUrl && (
                             <div className="flex flex-col items-center">
@@ -825,6 +896,14 @@ export function AppPersonalityComingSoon() {
                               <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Approved AI Viral-Optimized Video</span>
                               <div className="rounded-xl overflow-hidden bg-black aspect-video w-full border border-slate-200 shadow-sm">
                                 <video src={mediaUrl(viewScript.viralVideoUrl)} controls className="w-full h-full object-contain" />
+                              </div>
+                            </div>
+                          )}
+                          {!viewScript.processedVideoUrl && !viewScript.viralVideoUrl && viewScript.rawVideoUrl && (
+                            <div className="flex flex-col items-center col-span-2 max-w-xl mx-auto w-full">
+                              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Approved Raw Video (Direct Shared)</span>
+                              <div className="rounded-xl overflow-hidden bg-black aspect-video w-full border border-slate-200 shadow-sm">
+                                <video src={mediaUrl(viewScript.rawVideoUrl)} controls className="w-full h-full object-contain" />
                               </div>
                             </div>
                           )}
@@ -941,7 +1020,7 @@ export function AppPersonalityComingSoon() {
                 : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
             }`}
           >
-            Processing ({scripts.filter(s => ["Submitted", "Editing"].includes(s.approvalStatus)).length})
+            Processing ({scripts.filter(s => ["Recorded", "Submitted", "Editing"].includes(s.approvalStatus)).length})
           </button>
           <button
             onClick={() => setActiveTab("Ready for Review")}
@@ -971,7 +1050,7 @@ export function AppPersonalityComingSoon() {
                 : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
             }`}
           >
-            Objections / Rejected ({scripts.filter(s => ["Objection", "Rejected"].includes(s.approvalStatus)).length})
+            Objections / Rejected ({scripts.filter(s => ["Objection", "Rejected", "Retake"].includes(s.approvalStatus)).length})
           </button>
         </div>
       )}
@@ -982,10 +1061,10 @@ export function AppPersonalityComingSoon() {
       ) : (() => {
         const filteredScripts = scripts.filter(s => {
           if (activeTab === "Scripts") return ["Draft", "Pending", "Waiting"].includes(s.approvalStatus);
-          if (activeTab === "Processing") return ["Submitted", "Editing"].includes(s.approvalStatus);
+          if (activeTab === "Processing") return ["Recorded", "Submitted", "Editing"].includes(s.approvalStatus);
           if (activeTab === "Ready for Review") return s.approvalStatus === "Edited";
           if (activeTab === "Approved") return s.approvalStatus === "Approved";
-          if (activeTab === "Objections / Rejected") return ["Objection", "Rejected"].includes(s.approvalStatus);
+          if (activeTab === "Objections / Rejected") return ["Objection", "Rejected", "Retake"].includes(s.approvalStatus);
           return true;
         });
 
