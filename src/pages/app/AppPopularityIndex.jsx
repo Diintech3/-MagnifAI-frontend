@@ -5,7 +5,7 @@ import {
   LuEye, LuLink, LuUnlink,
   LuArrowLeft, LuExternalLink, LuTwitter, LuLinkedin,
   LuUserPlus, LuSearch, LuTrash2, LuPlus, LuCheck,
-  LuPhone, LuMessageSquare, LuBot
+  LuPhone, LuMessageSquare, LuBot, LuLayoutGrid
 } from "react-icons/lu";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../auth/AuthProvider";
@@ -123,9 +123,9 @@ export function AppPopularityIndex() {
         api("/api/app/people/new", { token }),
         api("/api/app/people/groups", { token })
       ]);
-      setContacts(contactsData || []);
-      setNewlyJoined(newMembersData || []);
-      setGroups(groupsData || []);
+      setContacts(contactsData?.contacts || []);
+      setNewlyJoined(newMembersData?.newMembers || []);
+      setGroups(groupsData?.groups || []);
     } catch (e) {
       console.error("Failed to load People data:", e.message);
     } finally {
@@ -292,28 +292,24 @@ export function AppPopularityIndex() {
     try {
       let queryParams = "";
       if (timeRange === "Today") {
-        queryParams = "?filter=today";
+        queryParams = "?period=today";
       } else if (timeRange === "Yesterday") {
-        queryParams = "?filter=yesterday";
+        queryParams = "?period=yesterday";
       } else if (timeRange === "All") {
-        queryParams = "";
+        queryParams = "?period=all";
+      } else if (timeRange === "7 Days") {
+        queryParams = "?period=this_week";
       } else if (timeRange === "Date Range") {
         if (!customStartDate || !customEndDate) {
           setPingsLoading(false);
           return;
         }
-        queryParams = `?filter=custom&startDate=${customStartDate}&endDate=${customEndDate}`;
+        queryParams = `?start_date=${customStartDate}&end_date=${customEndDate}`;
       } else {
-        // Fallback for "7 Days" or any other timeframe
-        const end = new Date();
-        const start = new Date();
-        start.setDate(end.getDate() - 7);
-        const startStr = start.toISOString().split("T")[0];
-        const endStr = end.toISOString().split("T")[0];
-        queryParams = `?filter=custom&startDate=${startStr}&endDate=${endStr}`;
+        queryParams = "?period=this_week";
       }
 
-      const data = await api(`/api/agents/analytics/pings${queryParams}`, { token });
+      const data = await api(`/api/root-agent/pings/stats${queryParams}`, { token });
       setPingsData(data || null);
     } catch (e) {
       console.error("Failed to load pings data:", e.message);
@@ -1550,17 +1546,67 @@ function AppPingsDashboard({
   customEndDate,
   setCustomEndDate
 }) {
-  const summary = data?.summary || {
+  const summary = data ? {
+    totalPings: data.total_pings?.count || 0,
+    totalPingsGrowth: data.total_pings?.growth || "0%",
+    totalPingsGrowthText: data.total_pings?.growth_text || "",
+    totalPingsIsPositive: data.total_pings?.is_positive ?? true,
+
+    conversations: data.conversations?.count || 0,
+    conversationsGrowth: data.conversations?.growth || "0%",
+    conversationsGrowthText: data.conversations?.growth_text || "",
+    conversationsIsPositive: data.conversations?.is_positive ?? true,
+
+    whatsappChats: data.sources?.whatsapp?.count || 0,
+    whatsappGrowth: data.sources?.whatsapp?.growth || "0% ↑",
+    whatsappIsPositive: data.sources?.whatsapp?.is_positive ?? true,
+
+    webChats: data.sources?.chats?.count || 0,
+    webChatsGrowth: data.sources?.chats?.growth || "0% ↑",
+    webChatsIsPositive: data.sources?.chats?.is_positive ?? true,
+
+    webCalls: data.sources?.calls?.count || 0,
+    webCallsGrowth: data.sources?.calls?.growth || "0% ↑",
+    webCallsIsPositive: data.sources?.calls?.is_positive ?? true,
+
+    widgetsCount: data.sources?.widgets?.count || 0,
+    widgetsGrowth: data.sources?.widgets?.growth || "0% ↑",
+    widgetsIsPositive: data.sources?.widgets?.is_positive ?? true,
+
+    meetingRequests: data.outcomes?.meetings?.count || 0,
+    meetingsGrowth: data.outcomes?.meetings?.growth || "0% ↑",
+    meetingsIsPositive: data.outcomes?.meetings?.is_positive ?? true,
+
+    enquiry: data.outcomes?.enquiry?.count || 0,
+    enquiryGrowth: data.outcomes?.enquiry?.growth || "0% ↑",
+    enquiryIsPositive: data.outcomes?.enquiry?.is_positive ?? true,
+
+    support: data.outcomes?.support?.count || 0,
+    supportGrowth: data.outcomes?.support?.growth || "0% ↑",
+    supportIsPositive: data.outcomes?.support?.is_positive ?? true,
+
+    feedback: data.outcomes?.feedback?.count || 0,
+    feedbackGrowth: data.outcomes?.feedback?.growth || "0% ↑",
+    feedbackIsPositive: data.outcomes?.feedback?.is_positive ?? true,
+
+    others: data.outcomes?.others?.count || 0,
+    othersGrowth: data.outcomes?.others?.growth || "0% ↑",
+    othersIsPositive: data.outcomes?.others?.is_positive ?? true,
+  } : {
     totalPings: 0,
+    conversations: 0,
     whatsappChats: 0,
     webChats: 0,
+    webCalls: 0,
+    widgetsCount: 0,
     meetingRequests: 0,
-    contactCalls: 0,
-    newCalls: 0,
-    ivrCalls: 0
+    enquiry: 0,
+    support: 0,
+    feedback: 0,
+    others: 0
   };
 
-  const breakdown = data?.breakdown || [];
+  const breakdown = data?.agents || [];
 
   const { token } = useAuth();
   
@@ -2168,78 +2214,113 @@ function AppPingsDashboard({
         </div>
       ) : (
         <>
-          {/* Main 4 KPIs row */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Main 2 KPIs row (Total Pings & Conversation) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Total Pings */}
             <div 
               onClick={() => handleExploreCard("all")} 
-              className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm hover:shadow-md transition cursor-pointer hover:-translate-y-0.5 duration-200"
+              className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm hover:shadow-md transition cursor-pointer hover:-translate-y-0.5 duration-200"
             >
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Total Pings</span>
-                <span className="p-2 rounded-xl bg-indigo-50 text-indigo-600"><LuMessageSquare className="h-4 w-4" /></span>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Pings</span>
+                <span className="p-2 rounded-xl bg-indigo-50 text-indigo-600"><LuMessageSquare className="h-5 w-5" /></span>
               </div>
-              <div className="text-2xl font-black text-slate-800">{summary.totalPings}</div>
-              <div className="text-[10px] text-slate-400 mt-1 font-bold">Sum of chats + calls</div>
+              <div className="flex items-baseline gap-3">
+                <span className="text-3xl font-black text-slate-800">{summary.totalPings}</span>
+                {summary.totalPingsGrowthText && (
+                  <span className={`text-xs font-bold ${summary.totalPingsIsPositive ? "text-emerald-600" : "text-rose-500"}`}>
+                    {summary.totalPingsGrowthText}
+                  </span>
+                )}
+              </div>
             </div>
 
+            {/* Conversation */}
             <div 
-              onClick={() => handleExploreCard("web")} 
-              className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm hover:shadow-md transition cursor-pointer hover:-translate-y-0.5 duration-200"
+              onClick={() => handleExploreCard("all")} 
+              className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm hover:shadow-md transition cursor-pointer hover:-translate-y-0.5 duration-200"
             >
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Web Chats</span>
-                <span className="p-2 rounded-xl bg-blue-50 text-blue-600"><LuGlobe className="h-4 w-4" /></span>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Conversation</span>
+                <span className="p-2 rounded-xl bg-emerald-50 text-emerald-600"><LuUsers className="h-5 w-5" /></span>
               </div>
-              <div className="text-2xl font-black text-slate-800">{summary.webChats}</div>
-              <div className="text-[10px] text-slate-400 mt-1 font-bold">From website widgets</div>
-            </div>
-
-            <div 
-              onClick={() => handleExploreCard("whatsapp")} 
-              className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm hover:shadow-md transition cursor-pointer hover:-translate-y-0.5 duration-200"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">WhatsApp Chats</span>
-                <span className="p-2 rounded-xl bg-emerald-50 text-emerald-600"><LuMessageCircle className="h-4 w-4" /></span>
+              <div className="flex items-baseline gap-3">
+                <span className="text-3xl font-black text-slate-800">{summary.conversations}</span>
+                {summary.conversationsGrowthText && (
+                  <span className={`text-xs font-bold ${summary.conversationsIsPositive ? "text-emerald-600" : "text-rose-500"}`}>
+                    {summary.conversationsGrowthText}
+                  </span>
+                )}
               </div>
-              <div className="text-2xl font-black text-slate-800">{summary.whatsappChats}</div>
-              <div className="text-[10px] text-slate-400 mt-1 font-bold">From WhatsApp integrations</div>
-            </div>
-
-            <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm hover:shadow-md transition">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Meeting Requests</span>
-                <span className="p-2 rounded-xl bg-amber-50 text-amber-600"><LuUsers className="h-4 w-4" /></span>
-              </div>
-              <div className="text-2xl font-black text-slate-800">{summary.meetingRequests}</div>
-              <div className="text-[10px] text-slate-400 mt-1 font-bold">Bookings generated in chat</div>
             </div>
           </div>
 
-          {/* Calls Section with Coming Soon */}
-          <div className="rounded-2xl border border-dashed border-indigo-100 bg-indigo-50/20 p-6 relative overflow-hidden animate-fadeIn">
-            <div className="absolute top-4 right-4 bg-indigo-600 text-white font-extrabold text-[9px] uppercase tracking-wider px-2 py-0.5 rounded shadow">
-              Coming Soon
-            </div>
-            <div className="mb-4">
-              <h4 className="text-xs font-black text-indigo-900 uppercase tracking-wider flex items-center gap-1.5">
-                <LuPhone className="h-4 w-4 text-indigo-600" /> Virtual Number Telephony Stats
-              </h4>
-              <p className="text-[11px] text-slate-500 mt-0.5">Track inbound/outbound calls, contact rates, and IVR flows automatically.</p>
-            </div>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 opacity-75">
-              <div className="bg-white/80 backdrop-blur rounded-xl border border-slate-100 p-4">
-                <div className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider mb-1">Contact Calls</div>
-                <div className="text-xl font-bold text-slate-400">—</div>
+          {/* By Source Section */}
+          <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm animate-fadeIn">
+            <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-5">By Source</h4>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
+              {/* WhatsApp */}
+              <div onClick={() => handleExploreCard("whatsapp")} className="flex flex-col items-center justify-center p-3 hover:bg-slate-50 rounded-2xl transition cursor-pointer">
+                <span className="p-3 rounded-2xl bg-emerald-50 text-emerald-600 mb-2.5">
+                  <LuMessageCircle className="h-6 w-6" />
+                </span>
+                <span className="text-xs font-bold text-slate-600">WhatsApp</span>
+                <div className="flex items-baseline gap-1.5 mt-1">
+                  <span className="text-lg font-black text-slate-800">{summary.whatsappChats}</span>
+                  {summary.whatsappGrowth && (
+                    <span className={`text-[10px] font-bold ${summary.whatsappIsPositive ? "text-emerald-600" : "text-rose-500"}`}>
+                      {summary.whatsappGrowth}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="bg-white/80 backdrop-blur rounded-xl border border-slate-100 p-4">
-                <div className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider mb-1">New Calls</div>
-                <div className="text-xl font-bold text-slate-400">—</div>
+
+              {/* Chats */}
+              <div onClick={() => handleExploreCard("web")} className="flex flex-col items-center justify-center p-3 hover:bg-slate-50 rounded-2xl transition cursor-pointer">
+                <span className="p-3 rounded-2xl bg-blue-50 text-blue-600 mb-2.5">
+                  <LuMessageSquare className="h-6 w-6" />
+                </span>
+                <span className="text-xs font-bold text-slate-600">Chats</span>
+                <div className="flex items-baseline gap-1.5 mt-1">
+                  <span className="text-lg font-black text-slate-800">{summary.webChats}</span>
+                  {summary.webChatsGrowth && (
+                    <span className={`text-[10px] font-bold ${summary.webChatsIsPositive ? "text-emerald-600" : "text-rose-500"}`}>
+                      {summary.webChatsGrowth}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="bg-white/80 backdrop-blur rounded-xl border border-slate-100 p-4">
-                <div className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider mb-1">IVR Calls</div>
-                <div className="text-xl font-bold text-slate-400">—</div>
+
+              {/* Calls */}
+              <div className="flex flex-col items-center justify-center p-3 hover:bg-slate-50 rounded-2xl transition">
+                <span className="p-3 rounded-2xl bg-indigo-50 text-indigo-600 mb-2.5">
+                  <LuPhone className="h-6 w-6" />
+                </span>
+                <span className="text-xs font-bold text-slate-600">Calls</span>
+                <div className="flex items-baseline gap-1.5 mt-1">
+                  <span className="text-lg font-black text-slate-800">{summary.webCalls}</span>
+                  {summary.webCallsGrowth && (
+                    <span className={`text-[10px] font-bold ${summary.webCallsIsPositive ? "text-emerald-600" : "text-rose-500"}`}>
+                      {summary.webCallsGrowth}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Widgets */}
+              <div className="flex flex-col items-center justify-center p-3 hover:bg-slate-50 rounded-2xl transition">
+                <span className="p-3 rounded-2xl bg-purple-50 text-purple-600 mb-2.5">
+                  <LuLayoutGrid className="h-6 w-6" />
+                </span>
+                <span className="text-xs font-bold text-slate-600">Widgets</span>
+                <div className="flex items-baseline gap-1.5 mt-1">
+                  <span className="text-lg font-black text-slate-800">{summary.widgetsCount}</span>
+                  {summary.widgetsGrowth && (
+                    <span className={`text-[10px] font-bold ${summary.widgetsIsPositive ? "text-emerald-600" : "text-rose-500"}`}>
+                      {summary.widgetsGrowth}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -2258,10 +2339,10 @@ function AppPingsDashboard({
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
                       <th className="px-6 py-3">Agent Name</th>
-                      <th className="px-6 py-3">Total Chats</th>
-                      <th className="px-6 py-3">Web Chats</th>
-                      <th className="px-6 py-3">WhatsApp Chats</th>
-                      <th className="px-6 py-3">Meetings Generated</th>
+                      <th className="px-6 py-3">Category</th>
+                      <th className="px-6 py-3">Role</th>
+                      <th className="px-6 py-3">Status</th>
+                      <th className="px-6 py-3">Total Visitors</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
@@ -2275,10 +2356,19 @@ function AppPingsDashboard({
                           <span className="p-1 rounded bg-indigo-50 text-indigo-600"><LuBot className="h-3.5 w-3.5" /></span>
                           {agent.name}
                         </td>
-                        <td className="px-6 py-4">{agent.totalChats}</td>
-                        <td className="px-6 py-4">{agent.webChats}</td>
-                        <td className="px-6 py-4">{agent.whatsappChats}</td>
-                        <td className="px-6 py-4 text-amber-600 font-bold">{agent.meetingRequests}</td>
+                        <td className="px-6 py-4 capitalize">{agent.category || "General"}</td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${agent.is_root ? "bg-amber-100 text-amber-700 border border-amber-200" : "bg-slate-100 text-slate-600"}`}>
+                            {agent.is_root ? "Root Assistant" : "Sub-agent"}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-bold ${agent.is_active ? "text-emerald-600" : "text-rose-500"}`}>
+                            <span className={`h-1.5 w-1.5 rounded-full ${agent.is_active ? "bg-emerald-600" : "bg-rose-500"}`} />
+                            {agent.is_active ? "Active" : "Inactive"}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-indigo-600 font-bold">{agent.total_visitors}</td>
                       </tr>
                     ))}
                   </tbody>

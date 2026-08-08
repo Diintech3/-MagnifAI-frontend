@@ -11,6 +11,8 @@ import { CandidateDashboard } from "./pages/CandidateDashboard";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { getToken } from "./lib/tokenStorage";
 import { CEOLoginPage } from "./pages/CEOLoginPage";
+import { AppRegisterRequest } from "./pages/AppRegisterRequest";
+import { CEOForgotPassword } from "./pages/CEOForgotPassword";
 import { PublicAgentChat } from "./pages/PublicAgentChat";
 
 function RoleRoute({ allow, loginPath, children }) {
@@ -113,6 +115,14 @@ function AppRoutes() {
             <CEOLoginPage />
           </GuestLoginRoute>
         }
+      />
+      <Route
+        path="/ceo/register"
+        element={<AppRegisterRequest />}
+      />
+      <Route
+        path="/ceo/forgot-password"
+        element={<CEOForgotPassword />}
       />
       <Route path="/login" element={<Navigate to="/superadmin/login" replace />} />
       <Route

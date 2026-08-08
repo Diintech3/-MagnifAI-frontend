@@ -24,14 +24,27 @@ export function AppPeople() {
   const [selectedContactIds, setSelectedContactIds] = useState([]);
   const [peopleLoading, setPeopleLoading] = useState(false);
   
+  // Total counts for header chips
+  const [totalContactsCount, setTotalContactsCount] = useState(0);
+  const [totalNewMembersCount, setTotalNewMembersCount] = useState(0);
+  const [totalGroupsCount, setTotalGroupsCount] = useState(0);
+
+  // Pagination states
+  const [contactsPage, setContactsPage] = useState(1);
+  const [hasMoreContacts, setHasMoreContacts] = useState(false);
+
+  const [newMembersPage, setNewMembersPage] = useState(1);
+  const [hasMoreNewMembers, setHasMoreNewMembers] = useState(false);
+
+  const [groupsPage, setGroupsPage] = useState(1);
+  const [hasMoreGroups, setHasMoreGroups] = useState(false);
+
   // Contact details sub-page states
   const [selectedContactId, setSelectedContactId] = useState(null);
   const [contactDetails, setContactDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [chatFilter, setChatFilter] = useState("all"); // "all" | "web" | "whatsapp"
   const [activeAgentIndex, setActiveAgentIndex] = useState(0);
-  const [contactsPage, setContactsPage] = useState(1);
-  const [hasMoreContacts, setHasMoreContacts] = useState(false);
 
   // Inline forms state
   const [showAddContactForm, setShowAddContactForm] = useState(false);
@@ -51,14 +64,23 @@ export function AppPeople() {
     try {
       const [contactsData, newMembersData, groupsData] = await Promise.all([
         api(`/api/app/people/contacts?page=1&limit=50&search=${encodeURIComponent(peopleSearch)}`, { token }),
-        api("/api/app/people/new", { token }),
-        api("/api/app/people/groups", { token })
+        api("/api/app/people/new?page=1&limit=15", { token }),
+        api("/api/app/people/groups?page=1&limit=10", { token })
       ]);
-      setContacts(contactsData || []);
-      setNewlyJoined(newMembersData || []);
-      setGroups(groupsData || []);
+      setContacts(contactsData?.contacts || []);
+      setTotalContactsCount(contactsData?.totalContacts || 0);
       setContactsPage(1);
-      setHasMoreContacts(contactsData && contactsData.length === 50);
+      setHasMoreContacts(contactsData?.hasMore || false);
+
+      setNewlyJoined(newMembersData?.newMembers || []);
+      setTotalNewMembersCount(newMembersData?.total || 0);
+      setNewMembersPage(1);
+      setHasMoreNewMembers(newMembersData?.hasMore || false);
+
+      setGroups(groupsData?.groups || []);
+      setTotalGroupsCount(groupsData?.total || 0);
+      setGroupsPage(1);
+      setHasMoreGroups(groupsData?.hasMore || false);
     } catch (e) {
       console.error("Failed to load People data:", e.message);
       toastFromError(e, "Failed to load People data");
@@ -71,14 +93,44 @@ export function AppPeople() {
     try {
       const nextPage = contactsPage + 1;
       const contactsData = await api(`/api/app/people/contacts?page=${nextPage}&limit=50&search=${encodeURIComponent(peopleSearch)}`, { token });
-      if (contactsData && contactsData.length > 0) {
-        setContacts(prev => [...prev, ...contactsData]);
+      if (contactsData?.contacts && contactsData.contacts.length > 0) {
+        setContacts(prev => [...prev, ...contactsData.contacts]);
       }
       setContactsPage(nextPage);
-      setHasMoreContacts(contactsData && contactsData.length === 50);
+      setHasMoreContacts(contactsData?.hasMore || false);
     } catch (e) {
       console.error("Failed to load more contacts:", e.message);
       toastFromError(e, "Failed to load more contacts");
+    }
+  };
+
+  const onLoadMoreNewMembers = async () => {
+    try {
+      const nextPage = newMembersPage + 1;
+      const newMembersData = await api(`/api/app/people/new?page=${nextPage}&limit=15`, { token });
+      if (newMembersData?.newMembers && newMembersData.newMembers.length > 0) {
+        setNewlyJoined(prev => [...prev, ...newMembersData.newMembers]);
+      }
+      setNewMembersPage(nextPage);
+      setHasMoreNewMembers(newMembersData?.hasMore || false);
+    } catch (e) {
+      console.error("Failed to load more new members:", e.message);
+      toastFromError(e, "Failed to load more new members");
+    }
+  };
+
+  const onLoadMoreGroups = async () => {
+    try {
+      const nextPage = groupsPage + 1;
+      const groupsData = await api(`/api/app/people/groups?page=${nextPage}&limit=10`, { token });
+      if (groupsData?.groups && groupsData.groups.length > 0) {
+        setGroups(prev => [...prev, ...groupsData.groups]);
+      }
+      setGroupsPage(nextPage);
+      setHasMoreGroups(groupsData?.hasMore || false);
+    } catch (e) {
+      console.error("Failed to load more groups:", e.message);
+      toastFromError(e, "Failed to load more groups");
     }
   };
 
@@ -512,15 +564,15 @@ export function AppPeople() {
         {/* Dynamic stat chips */}
         <div className="flex gap-2 flex-wrap items-center">
           <span className="inline-flex items-center rounded-xl bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 border border-blue-200 shadow-sm">
-            {contacts.length} Total Contacts
+            {totalContactsCount} Total Contacts
           </span>
-          {newlyJoined.length > 0 && (
+          {totalNewMembersCount > 0 && (
             <span className="inline-flex items-center rounded-xl bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200 shadow-sm">
-              +{newlyJoined.length} Newly Joined
+              {totalNewMembersCount} Newly Joined
             </span>
           )}
           <span className="inline-flex items-center rounded-xl bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700 border border-violet-200 shadow-sm">
-            {groups.length} Groups
+            {totalGroupsCount} Groups
           </span>
         </div>
       </div>
@@ -656,6 +708,17 @@ export function AppPeople() {
                     </div>
                   </div>
                 ))
+              )}
+              {hasMoreNewMembers && (
+                <div className="pt-4 pb-2 text-center animate-fadeIn">
+                  <button
+                    type="button"
+                    onClick={onLoadMoreNewMembers}
+                    className="px-5 py-2 text-xs font-black bg-amber-500 hover:bg-amber-600 border border-slate-950/10 text-white rounded-xl transition shadow-md"
+                  >
+                    Load More Members
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -833,7 +896,7 @@ export function AppPeople() {
             <div className="space-y-4">
               {/* Create Group Quick Action */}
               <div className="flex justify-between items-center pb-2 border-b border-slate-50">
-                <span className="text-xs font-bold text-slate-500">Workspace Groups ({groups.length})</span>
+                <span className="text-xs font-bold text-slate-500">Workspace Groups ({totalGroupsCount})</span>
                 <button
                   onClick={() => {
                     setPeopleTab("contacts");
@@ -877,6 +940,17 @@ export function AppPeople() {
                       </button>
                     </div>
                   ))
+                )}
+                {hasMoreGroups && (
+                  <div className="pt-4 pb-2 text-center animate-fadeIn">
+                    <button
+                      type="button"
+                      onClick={onLoadMoreGroups}
+                      className="px-5 py-2 text-xs font-black bg-amber-500 hover:bg-amber-600 border border-slate-950/10 text-white rounded-xl transition shadow-md"
+                    >
+                      Load More Groups
+                    </button>
+                  </div>
                 )}
               </div>
             </div>

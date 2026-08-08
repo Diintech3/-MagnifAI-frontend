@@ -193,6 +193,10 @@ export function AppAiAgent({ mode = "business" }) {
   }
   // Q&A Pairs
   const [qaPairs, setQaPairs] = useState([{ q: "", a: "" }]);
+  const [showBulkFaqModal, setShowBulkFaqModal] = useState(false);
+  const [bulkFaqText, setBulkFaqText] = useState("");
+  const [bulkFaqLangOpt, setBulkFaqLangOpt] = useState("both");
+  const [bulkFaqClear, setBulkFaqClear] = useState(false);
 
   // Knowledge Base upload states
   const [pdfFile, setPdfFile] = useState(null);
@@ -1876,6 +1880,104 @@ export function AppAiAgent({ mode = "business" }) {
     const updated = [...qaPairs];
     updated[index][field] = value;
     setQaPairs(updated);
+  }
+
+  function handleBulkImportFaq() {
+    if (!bulkFaqText.trim()) {
+      alert("Please paste some text first.");
+      return;
+    }
+
+    const matches = [];
+    const qRegex = /❓|(?:\r?\n|^)\s*(?:Q\d*|Question\d*|हिंदी|English)\s*[\.:\-]/gi;
+    const aRegex = /✅|(?:\r?\n|^)\s*(?:A\d*|Answer\d*|उत्तर)\s*[\.:\-]/gi;
+
+    let match;
+    qRegex.lastIndex = 0;
+    while ((match = qRegex.exec(bulkFaqText)) !== null) {
+      matches.push({ type: "❓", index: match.index, length: match[0].length });
+    }
+
+    aRegex.lastIndex = 0;
+    while ((match = aRegex.exec(bulkFaqText)) !== null) {
+      matches.push({ type: "✅", index: match.index, length: match[0].length });
+    }
+
+    if (matches.length === 0) {
+      alert("Could not find any Q&A formatting. Please ensure you use supported formats (like Q./A. or ❓/✅).");
+      return;
+    }
+
+    matches.sort((a, b) => a.index - b.index);
+
+    // Filter out duplicates (e.g. if ❓ and Hindi: matched together)
+    const filteredMatches = [];
+    for (let m of matches) {
+      if (filteredMatches.length > 0) {
+        const last = filteredMatches[filteredMatches.length - 1];
+        if (m.type === last.type && (m.index - last.index) < 15) {
+          continue;
+        }
+      }
+      filteredMatches.push(m);
+    }
+
+    const parsedPairs = [];
+    let currentQ = null;
+
+    for (let i = 0; i < filteredMatches.length; i++) {
+      const current = filteredMatches[i];
+      const nextIndex = i + 1 < filteredMatches.length ? filteredMatches[i + 1].index : bulkFaqText.length;
+      const rawText = bulkFaqText.slice(current.index + current.length, nextIndex);
+      
+      let isHindi = /हिंदी|Hindi|उत्तर/i.test(rawText);
+      let isEnglish = /English|Answer/i.test(rawText);
+      
+      const cleanText = rawText
+        .replace(/^\s*(?:[❓✅]|हिंदी|Hindi|English|उत्तर|Answer|Question\d*|Answer\d*|Q\d*|A\d*)\s*[\.:\-]?\s*/i, "")
+        .trim();
+
+      if (current.type === "❓") {
+        currentQ = {
+          text: cleanText,
+          isHindi,
+          isEnglish
+        };
+      } else if (current.type === "✅" && currentQ) {
+        const qText = currentQ.text;
+        const aText = cleanText;
+        
+        let shouldImport = true;
+        if (bulkFaqLangOpt === "hindi") {
+          if (currentQ.isEnglish || isEnglish) shouldImport = false;
+        } else if (bulkFaqLangOpt === "english") {
+          if (currentQ.isHindi || isHindi) shouldImport = false;
+        }
+
+        if (shouldImport && qText && aText) {
+          parsedPairs.push({ q: qText, a: aText });
+        }
+        currentQ = null;
+      }
+    }
+
+    if (parsedPairs.length === 0) {
+      alert("No Q&A pairs matched your selected language filter.");
+      return;
+    }
+
+    let newPairs = [];
+    if (bulkFaqClear) {
+      newPairs = parsedPairs;
+    } else {
+      const existingFilter = qaPairs.filter(p => p.q.trim() || p.a.trim());
+      newPairs = [...existingFilter, ...parsedPairs];
+    }
+
+    setQaPairs(newPairs);
+    setBulkFaqText("");
+    setShowBulkFaqModal(false);
+    toastSuccess(`Successfully imported ${parsedPairs.length} Q&A pairs!`);
   }
 
   // Calculate dynamic Profile Completion Percentage
@@ -3731,13 +3833,22 @@ export function AppAiAgent({ mode = "business" }) {
                       <h3 className="font-bold text-slate-800 text-sm">Dynamic Q&A FAQ Pairs</h3>
                       <p className="text-[10px] text-slate-500">Provide direct answers for specific user questions (RAG fallback cache).</p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={addQaRow}
-                      className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-750 font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-0.5 cursor-pointer"
-                    >
-                      <LuPlus className="h-4 w-4" /> Add Row
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowBulkFaqModal(true)}
+                        className="bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-750 font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer animate-none"
+                      >
+                        <LuFileText className="h-4 w-4" /> Bulk Import
+                      </button>
+                      <button
+                        type="button"
+                        onClick={addQaRow}
+                        className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-750 font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-0.5 cursor-pointer animate-none"
+                      >
+                        <LuPlus className="h-4 w-4" /> Add Row
+                      </button>
+                    </div>
                   </div>
                   <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
                     {qaPairs.map((pair, idx) => (
@@ -4251,6 +4362,121 @@ export function AppAiAgent({ mode = "business" }) {
                   Close
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Import FAQ Modal */}
+      {showBulkFaqModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="bg-slate-50 border-b border-slate-200 p-5 flex items-center justify-between">
+              <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                <LuFileText className="text-emerald-600 h-5 w-5" /> Bulk Import Q&A Pairs
+              </h2>
+              <button
+                onClick={() => setShowBulkFaqModal(false)}
+                className="text-slate-400 hover:text-slate-600 font-bold text-lg p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            {/* Body */}
+            <div className="p-6 space-y-4">
+              <div className="bg-emerald-50/60 border border-emerald-150 rounded-xl p-3.5 text-emerald-850 text-xs space-y-1.5 shadow-inner">
+                <p className="font-bold flex items-center gap-1"><LuInfo className="h-4 w-4 text-emerald-750" /> Supported Q&A Formats (Aap in tarike se paste kar sakte hain):</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1 text-[11px] font-semibold text-slate-650">
+                  <div className="flex items-center gap-1.5">✓ <strong>Emojis:</strong> ❓ Question / ✅ Answer</div>
+                  <div className="flex items-center gap-1.5">✓ <strong>Prefix:</strong> Q. Question / A. Answer</div>
+                  <div className="flex items-center gap-1.5">✓ <strong>Colon:</strong> Q: Question / A: Answer</div>
+                  <div className="flex items-center gap-1.5">✓ <strong>Numbered:</strong> Q1. Question / A1. Answer</div>
+                  <div className="flex items-center gap-1.5">✓ <strong>Full words:</strong> Question: / Answer:</div>
+                  <div className="flex items-center gap-1.5">✓ <strong>Language:</strong> हिंदी: / उत्तर: / English:</div>
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">
+                  Paste Raw Q&A Text (e.g. from PDF/Docs)
+                </label>
+                <textarea
+                  placeholder="Paste your questions and answers here using any of the formats shown above."
+                  value={bulkFaqText}
+                  onChange={(e) => setBulkFaqText(e.target.value)}
+                  className="bg-white border border-slate-350 text-slate-700 text-xs rounded-lg p-2.5 w-full h-48 shadow-xs"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                {/* Language selection option */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">
+                    Import Language Filter
+                  </label>
+                  <div className="flex gap-3">
+                    <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700">
+                      <input
+                        type="radio"
+                        name="bulkLang"
+                        value="both"
+                        checked={bulkFaqLangOpt === "both"}
+                        onChange={() => setBulkFaqLangOpt("both")}
+                      />
+                      <span>Both Languages</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700">
+                      <input
+                        type="radio"
+                        name="bulkLang"
+                        value="hindi"
+                        checked={bulkFaqLangOpt === "hindi"}
+                        onChange={() => setBulkFaqLangOpt("hindi")}
+                      />
+                      <span>Hindi Only</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700">
+                      <input
+                        type="radio"
+                        name="bulkLang"
+                        value="english"
+                        checked={bulkFaqLangOpt === "english"}
+                        onChange={() => setBulkFaqLangOpt("english")}
+                      />
+                      <span>English Only</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Overwrite or append options */}
+                <div className="flex items-end">
+                  <label className="flex items-center gap-1.5 cursor-pointer font-semibold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={bulkFaqClear}
+                      onChange={(e) => setBulkFaqClear(e.target.checked)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                    />
+                    <span>Clear existing Q&A rows before importing</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            {/* Footer */}
+            <div className="bg-slate-50 border-t border-slate-200 p-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowBulkFaqModal(false)}
+                className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs py-2 px-4 rounded-lg shadow-sm transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkImportFaq}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 px-4 rounded-lg shadow-sm transition cursor-pointer"
+              >
+                Parse & Import
+              </button>
             </div>
           </div>
         </div>

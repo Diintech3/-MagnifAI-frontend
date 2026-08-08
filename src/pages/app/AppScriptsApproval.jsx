@@ -281,8 +281,16 @@ export function AppScriptsApproval() {
         body: payload
       });
       toastSuccess(`Script status updated to ${status}`);
-      if (viewScript && viewScript.scriptId === scriptId) {
-        setViewScript(prev => ({ ...prev, approvalStatus: status }));
+      if (viewScript && viewScript.submissions) {
+        setViewScript(prev => {
+          const updatedSubs = (prev.submissions || []).map(sub => {
+            if (sub.scriptId === scriptId) {
+              return { ...sub, approvalStatus: status };
+            }
+            return sub;
+          });
+          return { ...prev, submissions: updatedSubs };
+        });
       }
       loadData();
     } catch (e) {
@@ -304,8 +312,16 @@ export function AppScriptsApproval() {
         body: { status: targetStatus, note: objectionNote.trim() }
       });
       toastSuccess(targetStatus === "Retake" ? "Raw video rejected. Creator notified for retake." : "Objection raised successfully. Script sent back for re-editing.");
-      if (viewScript && viewScript.scriptId === objectionScript.scriptId) {
-        setViewScript(prev => ({ ...prev, approvalStatus: targetStatus }));
+      if (viewScript && viewScript.submissions) {
+        setViewScript(prev => {
+          const updatedSubs = (prev.submissions || []).map(sub => {
+            if (sub.scriptId === objectionScript.scriptId) {
+              return { ...sub, approvalStatus: targetStatus, objectionNote: objectionNote.trim() };
+            }
+            return sub;
+          });
+          return { ...prev, submissions: updatedSubs };
+        });
       }
       setObjectionScript(null);
       setObjectionNote("");
@@ -844,7 +860,7 @@ export function AppScriptsApproval() {
                         type="button"
                         disabled={updatingId === activeSub.scriptId}
                         onClick={() => { setObjectionScript(activeSub); }}
-                        className="flex items-center gap-1 rounded-lg bg-red-650 hover:bg-red-755 px-3.5 py-1.5 text-xs font-bold text-white transition shadow cursor-pointer"
+                        className="flex items-center gap-1 rounded-lg bg-red-600 hover:bg-red-700 px-3.5 py-1.5 text-xs font-bold text-white transition shadow cursor-pointer"
                       >
                         <LuX className="h-3.5 w-3.5" /> Reject Raw
                       </button>
@@ -1012,6 +1028,54 @@ export function AppScriptsApproval() {
                   Close
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Objection Reason Modal */}
+        {objectionScript && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <button type="button" className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setObjectionScript(null)} />
+            <div className="relative z-10 w-full max-w-md rounded-2xl bg-white p-6 shadow-xl border border-slate-200">
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                <h3 className="text-base font-bold text-slate-900">Raise Objection</h3>
+                <button type="button" onClick={() => setObjectionScript(null)} className="text-slate-400 hover:text-slate-600">
+                  <LuX className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <form onSubmit={raiseObjection} className="space-y-4">
+                <div>
+                  <p className="text-xs text-slate-500 mb-3 font-sans">
+                    Explain what needs to be changed in the video for script <strong>"{objectionScript.title}"</strong>:
+                  </p>
+                  <textarea
+                    required
+                    rows={4}
+                    value={objectionNote}
+                    onChange={(e) => setObjectionNote(e.target.value)}
+                    placeholder="E.g., Please fix the caption font size, or change the B-roll music in the middle section..."
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white text-slate-800"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 mt-5">
+                  <button
+                    type="button"
+                    onClick={() => setObjectionScript(null)}
+                    className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={saving || !objectionNote.trim()}
+                    className="flex items-center gap-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60 transition shadow"
+                  >
+                    {saving ? "Submitting…" : "Send for Editing"}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}

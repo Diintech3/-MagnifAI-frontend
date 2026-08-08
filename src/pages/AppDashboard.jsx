@@ -29,6 +29,7 @@ import { AppTools } from "./app/AppTools";
 import { AppPersonalityComingSoon } from "./app/AppPersonalityComingSoon";
 import { AppPersonalAIComingSoon } from "./app/AppPersonalAIComingSoon";
 import { AppScriptsApproval } from "./app/AppScriptsApproval";
+import { AppOnboardingRequests } from "./app/AppOnboardingRequests";
 import { CategoryManagement } from "./app/CategoryManagement";
 import { AppAiAgent } from "./app/AppAiAgent";
 import { AppDailyPlanner } from "./app/AppDailyPlanner";
@@ -66,6 +67,7 @@ const CHANGEMAKER_NAV = [
 const FOUNDER_NAV = [
   { to: "/app",          label: "Overview",       headerTitle: "Overview",                end: true, icon: "overview" },
   { to: "/app/ceos",     label: "CEOs / Founders", headerTitle: "CEO & Founder Management", icon: "candidates" },
+  { to: "/app/onboarding-requests", label: "Onboarding Requests", headerTitle: "Onboarding Requests", icon: "candidates" },
   { to: "/app/ugc-prompter", label: "UGC Prompter", headerTitle: "UGC Prompter",           icon: "ads" },
   { to: "/app/tools",         label: "Tools",        headerTitle: "Tools Hub",            icon: "matrix" },
 ];
@@ -100,6 +102,7 @@ export function AppDashboard() {
         <Routes>
           <Route index    element={<AppOverview />} />
           <Route path="ceos"     element={<FounderDashboard />} />
+          <Route path="onboarding-requests" element={<AppOnboardingRequests />} />
           <Route path="ugc-prompter" element={<AppScriptsApproval />} />
           <Route path="tools" element={<AppTools />} />
           <Route path="category-management" element={<CategoryManagement />} />
