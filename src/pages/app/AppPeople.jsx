@@ -4,7 +4,8 @@ import {
   LuRefreshCw, LuUsers, LuInstagram, LuFacebook, LuYoutube,
   LuMessageCircle, LuArrowLeft, LuExternalLink, LuTwitter, LuLinkedin,
   LuUserPlus, LuSearch, LuTrash2, LuPlus, LuCheck, LuPhone,
-  LuMessageSquare, LuStar, LuTrendingUp, LuShieldCheck, LuUnlink
+  LuMessageSquare, LuStar, LuTrendingUp, LuShieldCheck, LuUnlink,
+  LuImage, LuX
 } from "react-icons/lu";
 import { useAuth } from "../../auth/AuthProvider";
 import { api } from "../../lib/api";
@@ -28,10 +29,14 @@ export function AppPeople() {
   const [totalContactsCount, setTotalContactsCount] = useState(0);
   const [totalNewMembersCount, setTotalNewMembersCount] = useState(0);
   const [totalGroupsCount, setTotalGroupsCount] = useState(0);
+  const [totalBusinessCardsCount, setTotalBusinessCardsCount] = useState(0);
 
   // Pagination states
   const [contactsPage, setContactsPage] = useState(1);
   const [hasMoreContacts, setHasMoreContacts] = useState(false);
+  const [businessCards, setBusinessCards] = useState([]);
+  const [businessCardsPage, setBusinessCardsPage] = useState(1);
+  const [hasMoreBusinessCards, setHasMoreBusinessCards] = useState(false);
 
   const [newMembersPage, setNewMembersPage] = useState(1);
   const [hasMoreNewMembers, setHasMoreNewMembers] = useState(false);
@@ -58,14 +63,45 @@ export function AppPeople() {
   
   const [verifyingWhatsApp, setVerifyingWhatsApp] = useState(false);
 
+  // Card Scanner state
+  const [scanQueue, setScanQueue] = useState([]);
+  const [currentScanIndex, setCurrentScanIndex] = useState(0);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanProgress, setScanProgress] = useState("");
+  const [scanError, setScanError] = useState("");
+  
+  // Scanned Card verification data
+  const [cardPreviewUrl, setCardPreviewUrl] = useState(null);
+  const [parsedName, setParsedName] = useState("");
+  const [parsedPhone, setParsedPhone] = useState("");
+  const [parsedEmail, setParsedEmail] = useState("");
+  const [parsedCompany, setParsedCompany] = useState("");
+  const [parsedDesignation, setParsedDesignation] = useState("");
+  const [parsedCategory, setParsedCategory] = useState("Business Person");
+  const [cardImageKey, setCardImageKey] = useState("");
+  const [cardImageUrl, setCardImageUrl] = useState("");
+  const [showCardModal, setShowCardModal] = useState(false);
+  const [selectedCardUrl, setSelectedCardUrl] = useState(null);
+  const [showVerificationScreen, setShowVerificationScreen] = useState(false);
+
+  // Auto Send WhatsApp Template state
+  const [waTemplates, setWaTemplates] = useState([]);
+  const [autoSendTemplateEnabled, setAutoSendTemplateEnabled] = useState(
+    localStorage.getItem("magnifai_auto_send_template_enabled") === "true"
+  );
+  const [selectedAutoTemplate, setSelectedAutoTemplate] = useState(
+    localStorage.getItem("magnifai_auto_send_template_name") || ""
+  );
+
   // Load all people data
   const loadPeople = useCallback(async () => {
     setPeopleLoading(true);
     try {
-      const [contactsData, newMembersData, groupsData] = await Promise.all([
+      const [contactsData, newMembersData, groupsData, businessCardsData] = await Promise.all([
         api(`/api/app/people/contacts?page=1&limit=50&search=${encodeURIComponent(peopleSearch)}`, { token }),
         api("/api/app/people/new?page=1&limit=15", { token }),
-        api("/api/app/people/groups?page=1&limit=10", { token })
+        api("/api/app/people/groups?page=1&limit=10", { token }),
+        api(`/api/app/people/contacts?page=1&limit=50&isBusinessCard=true&search=${encodeURIComponent(peopleSearch)}`, { token })
       ]);
       setContacts(contactsData?.contacts || []);
       setTotalContactsCount(contactsData?.totalContacts || 0);
@@ -81,6 +117,11 @@ export function AppPeople() {
       setTotalGroupsCount(groupsData?.total || 0);
       setGroupsPage(1);
       setHasMoreGroups(groupsData?.hasMore || false);
+
+      setBusinessCards(businessCardsData?.contacts || []);
+      setTotalBusinessCardsCount(businessCardsData?.totalContacts || 0);
+      setBusinessCardsPage(1);
+      setHasMoreBusinessCards(businessCardsData?.hasMore || false);
     } catch (e) {
       console.error("Failed to load People data:", e.message);
       toastFromError(e, "Failed to load People data");
@@ -134,6 +175,21 @@ export function AppPeople() {
     }
   };
 
+  const onLoadMoreBusinessCards = async () => {
+    try {
+      const nextPage = businessCardsPage + 1;
+      const cardsData = await api(`/api/app/people/contacts?page=${nextPage}&limit=50&category=Business%20Person&search=${encodeURIComponent(peopleSearch)}`, { token });
+      if (cardsData?.contacts && cardsData.contacts.length > 0) {
+        setBusinessCards(prev => [...prev, ...cardsData.contacts]);
+      }
+      setBusinessCardsPage(nextPage);
+      setHasMoreBusinessCards(cardsData?.hasMore || false);
+    } catch (e) {
+      console.error("Failed to load more business cards:", e.message);
+      toastFromError(e, "Failed to load more business cards");
+    }
+  };
+
   // Action Handlers
   const onOpenContactDetails = useCallback(async (id) => {
     setSelectedContactId(id);
@@ -165,6 +221,225 @@ export function AppPeople() {
     }
   }, [location.state, onOpenContactDetails]);
 
+  // Load WhatsApp templates for auto-welcome feature
+  const loadWaTemplates = useCallback(async () => {
+    try {
+      const res = await api("/api/app/whatsapp/templates/list", { token });
+      if (res) {
+        const rawTemplates = res.data?.templates || res.data || res.templates || res;
+        if (Array.isArray(rawTemplates)) {
+          setWaTemplates(rawTemplates);
+          if (!selectedAutoTemplate && rawTemplates.length > 0) {
+            const firstT = rawTemplates[0].name || rawTemplates[0].templateName || "";
+            setSelectedAutoTemplate(firstT);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load templates in People:", e.message);
+    }
+  }, [token, selectedAutoTemplate]);
+
+  useEffect(() => {
+    loadWaTemplates();
+  }, [loadWaTemplates]);
+
+  const parseCardIndex = async (queue, index) => {
+    if (!queue || index < 0 || index >= queue.length) return;
+
+    const file = queue[index];
+    setScanLoading(true);
+    setScanProgress(`AI Agent is reading your card... [Card ${index + 1} of ${queue.length}]`);
+
+    const previewUrl = URL.createObjectURL(file);
+    setCardPreviewUrl(previewUrl);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("/api/app/people/scan-card", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json();
+        throw new Error(errJson.message || errJson.error || "Card image could not be parsed. Please upload a straight and clear photo.");
+      }
+
+      const res = await response.json();
+      if (res.success && res.data && (res.data.name || res.data.phone || res.data.company)) {
+        setParsedName(res.data.name || "");
+        setParsedPhone(res.data.phone || "");
+        setParsedEmail(res.data.email || "");
+        setParsedCompany(res.data.company || "");
+        setParsedDesignation(res.data.designation || "");
+        setParsedCategory("Business Person");
+        setCardImageKey(res.data.cardImageKey || "");
+        setCardImageUrl(res.data.cardImageUrl || "");
+        setScanError("");
+        setShowVerificationScreen(true);
+      } else {
+        throw new Error(res.message || "Card details could not be detected. Please ensure the card is straight, well-lit, and readable.");
+      }
+    } catch (err) {
+      console.error("[card-scan-frontend-error]", err.message);
+      const friendlyMsg = err.message || "Could not read card image. Please upload a clear, straight, and well-lit photo of the business card.";
+      setScanError(friendlyMsg);
+      toastFromError(new Error(friendlyMsg));
+      setShowVerificationScreen(false);
+    } finally {
+      setScanLoading(false);
+    }
+  };
+
+  const startParsingQueue = useCallback(async (files) => {
+    if (!files || files.length === 0) return;
+    setScanQueue(files);
+    setCurrentScanIndex(0);
+    setScanError("");
+    await parseCardIndex(files, 0);
+  }, [token]);
+
+  const handleCardFileChange = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    startParsingQueue(files);
+  };
+
+  const handleSaveVerifiedContact = async (e) => {
+    e.preventDefault();
+    if (!parsedName || !parsedPhone) {
+      toastError("Name and Phone are required.");
+      return;
+    }
+
+    try {
+      // Split ONLY on explicit multi-number separators (comma, slash, semicolon, pipe, newline), NEVER whitespace
+      const rawCandidates = parsedPhone.split(/[,/|;\n\r]+/).map(n => n.trim()).filter(Boolean);
+      
+      let numbers = [];
+      for (const cand of rawCandidates) {
+        const digitsOnly = cand.replace(/[^0-9]/g, "");
+        if (digitsOnly.length >= 7) {
+          numbers.push(cand);
+        }
+      }
+      if (numbers.length === 0 && parsedPhone.trim()) {
+        numbers = [parsedPhone.trim()];
+      }
+      
+      // Save contact (if only 1 number, save cleanly without (1) suffix)
+      for (let i = 0; i < numbers.length; i++) {
+        const num = numbers[i];
+        let nameSuffix = numbers.length > 1 ? ` (${i + 1})` : "";
+        
+        await api("/api/app/people/contacts", {
+          method: "POST",
+          token,
+          body: {
+            name: `${parsedName}${nameSuffix}`,
+            phone: num,
+            email: parsedEmail || undefined,
+            company: parsedCompany || undefined,
+            designation: parsedDesignation || undefined,
+            category: parsedCategory,
+            cardImageKey: cardImageKey || undefined,
+            cardImageUrl: cardImageUrl || undefined
+          }
+        });
+      }
+      
+      toastSuccess(`Saved ${numbers.length} contact(s) successfully!`);
+
+      // Auto-send WhatsApp template if enabled
+      if (autoSendTemplateEnabled && selectedAutoTemplate) {
+        const foundT = waTemplates.find(
+          t => (t.name || t.templateName || "") === selectedAutoTemplate
+        );
+        const lang = foundT ? (foundT.language || "en").toLowerCase() : "en";
+        const varCount = foundT?.variablesCount || (foundT?.variables?.length) || 0;
+
+        const dynamicVars = [];
+        for (let i = 1; i <= Math.max(varCount, 1); i++) {
+          dynamicVars.push({
+            key: String(i),
+            value: i === 1 ? parsedName : (parsedCompany || "Our Team")
+          });
+        }
+
+        for (const num of numbers) {
+          try {
+            await api("/api/app/whatsapp/send-template", {
+              method: "POST",
+              token,
+              body: {
+                phone: num,
+                templateName: selectedAutoTemplate,
+                language: lang,
+                variables: dynamicVars
+              }
+            });
+            console.log(`Auto template "${selectedAutoTemplate}" (${lang}) sent to ${num}`);
+          } catch (e) {
+            console.error("Auto template send error for", num, e.message);
+          }
+        }
+      }
+
+      const nextIndex = currentScanIndex + 1;
+      if (nextIndex < scanQueue.length) {
+        setCurrentScanIndex(nextIndex);
+        setShowVerificationScreen(false);
+        await parseCardIndex(scanQueue, nextIndex);
+      } else {
+        setShowVerificationScreen(false);
+        setCardPreviewUrl(null);
+        setScanQueue([]);
+        setCurrentScanIndex(0);
+        loadPeople();
+      }
+    } catch (err) {
+      toastFromError(err, "Failed to save contact");
+    }
+  };
+
+  const handleDiscardVerifiedContact = async () => {
+    const nextIndex = currentScanIndex + 1;
+    if (nextIndex < scanQueue.length) {
+      setCurrentScanIndex(nextIndex);
+      setShowVerificationScreen(false);
+      await parseCardIndex(scanQueue, nextIndex);
+    } else {
+      setShowVerificationScreen(false);
+      setCardPreviewUrl(null);
+      setScanQueue([]);
+      setCurrentScanIndex(0);
+      loadPeople();
+    }
+  };
+
+  const handleSyncSingleContact = async (contactId) => {
+    try {
+      const res = await api("/api/app/whatsapp/sync-client", {
+        token,
+        method: "POST",
+        body: { contactId }
+      });
+      if (res && res.success) {
+        toastSuccess("Contact synced with WhatsAI successfully!");
+      } else {
+        toastSuccess("Sync request sent.");
+      }
+    } catch (err) {
+      toastFromError(err, "Failed to sync contact");
+    }
+  };
+
   const onAddContact = async (e) => {
     e.preventDefault();
     if (!addContactName || !addContactPhone) return;
@@ -172,7 +447,14 @@ export function AppPeople() {
       await api("/api/app/people/contacts", {
         method: "POST",
         token,
-        body: { name: addContactName, phone: addContactPhone, email: addContactEmail }
+        body: { 
+          name: addContactName, 
+          phone: addContactPhone, 
+          email: addContactEmail,
+          contactType: "new",
+          isBusinessCard: false,
+          category: "Regular"
+        }
       });
       toastSuccess("Contact added successfully!");
       setShowAddContactForm(false);
@@ -326,6 +608,22 @@ export function AppPeople() {
                     <p className="text-[11px] font-semibold text-slate-500 mt-1">
                       at <span className="font-bold text-slate-700">{contactDetails.contact.company || "MagnifAI Technologies"}</span>
                     </p>
+                  </div>
+                )}
+                {contactDetails.contact.cardImageUrl && (
+                  <div className="mt-4 pt-4 border-t border-slate-100 text-center">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-2">Reference Scanned Card</p>
+                    <div className="border border-slate-200/60 rounded-xl overflow-hidden bg-white p-1 shadow-sm">
+                      <img 
+                        src={contactDetails.contact.cardImageUrl} 
+                        alt="Business Card" 
+                        className="w-full h-auto object-contain max-h-[120px] rounded-lg cursor-pointer hover:opacity-95 transition-all"
+                        onClick={() => {
+                          setSelectedCardUrl(contactDetails.contact.cardImageUrl);
+                          setShowCardModal(true);
+                        }}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -544,6 +842,179 @@ export function AppPeople() {
     );
   };
 
+  const renderVerificationScreen = () => {
+    return (
+      <div className="animate-fadeIn bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-6">
+          <div>
+            <h3 className="text-base font-black text-slate-900 uppercase tracking-wider">Verify Scanned Contact</h3>
+            <p className="text-xs text-slate-400 mt-0.5">Check and edit the extracted details before saving</p>
+          </div>
+          <button 
+            onClick={handleDiscardVerifiedContact}
+            className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors uppercase tracking-wider"
+          >
+            Cancel
+          </button>
+        </div>
+
+        {/* Split Layout */}
+        <div className="grid gap-6 md:grid-cols-2">
+          {/* Left Side: Scanned Card Image Preview */}
+          <div className="flex flex-col items-center justify-center border border-slate-200 bg-slate-50 rounded-xl p-4 min-h-[300px] overflow-hidden relative group">
+            {cardPreviewUrl ? (
+              <img 
+                src={cardPreviewUrl} 
+                alt="Scanned Business Card" 
+                className="max-h-[350px] w-auto object-contain rounded-lg shadow-md border border-slate-200 transition-transform duration-300 group-hover:scale-[1.02]"
+              />
+            ) : (
+              <span className="text-xs text-slate-400 italic">No image preview available</span>
+            )}
+            <span className="absolute bottom-2 right-2 text-[9px] font-bold text-slate-400 bg-white px-2 py-0.5 rounded-full shadow-sm border border-slate-100">
+              Reference Card Preview
+            </span>
+          </div>
+
+          {/* Right Side: Pre-filled Editable Form */}
+          <form onSubmit={handleSaveVerifiedContact} className="space-y-4">
+            <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Parsed Information</h4>
+            
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Name *</label>
+              <input
+                type="text"
+                required
+                value={parsedName}
+                onChange={(e) => setParsedName(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Phone *</label>
+              <input
+                type="text"
+                required
+                value={parsedPhone}
+                onChange={(e) => setParsedPhone(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Email</label>
+              <input
+                type="email"
+                value={parsedEmail}
+                onChange={(e) => setParsedEmail(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div className="grid gap-3 grid-cols-2">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Designation</label>
+                <input
+                  type="text"
+                  value={parsedDesignation}
+                  onChange={(e) => setParsedDesignation(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Company</label>
+                <input
+                  type="text"
+                  value={parsedCompany}
+                  onChange={(e) => setParsedCompany(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Category</label>
+              <select
+                value={parsedCategory}
+                onChange={(e) => setParsedCategory(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 font-semibold text-slate-700"
+              >
+                <option value="Business Person">Business Person</option>
+                <option value="Client">Client</option>
+                <option value="Lead">Lead</option>
+                <option value="Partner">Partner</option>
+                <option value="Regular">Regular</option>
+              </select>
+            </div>
+
+            {/* Auto WhatsApp Template on Save */}
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoSendTemplateEnabled}
+                    onChange={(e) => {
+                      setAutoSendTemplateEnabled(e.target.checked);
+                      localStorage.setItem("magnifai_auto_send_template_enabled", String(e.target.checked));
+                    }}
+                    className="h-4 w-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                  />
+                  <span className="text-xs font-bold text-slate-800">
+                    Auto-send WhatsApp Template on Save
+                  </span>
+                </label>
+              </div>
+              {autoSendTemplateEnabled && (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                    Select Template
+                  </label>
+                  <select
+                    value={selectedAutoTemplate}
+                    onChange={(e) => {
+                      setSelectedAutoTemplate(e.target.value);
+                      localStorage.setItem("magnifai_auto_send_template_name", e.target.value);
+                    }}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 font-semibold text-slate-700"
+                  >
+                    <option value="">-- Choose Template --</option>
+                    {waTemplates.map((t) => {
+                      const tName = t.name || t.templateName || "";
+                      return (
+                        <option key={t.id || t._id || tName} value={tName}>
+                          {tName} ({t.category || "UTILITY"})
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+              <button 
+                type="button" 
+                onClick={handleDiscardVerifiedContact} 
+                className="px-4 py-2 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 font-bold text-slate-600 transition"
+              >
+                Discard
+              </button>
+              <button 
+                type="submit" 
+                className="px-5 py-2 rounded-lg bg-emerald-600 border border-slate-900/10 text-xs font-black text-white shadow hover:bg-emerald-700 transition"
+              >
+                Save & Connect
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6 p-4 sm:p-6 bg-slate-50/30 min-h-screen">
       {/* Header section with back button and statistics counts */}
@@ -574,22 +1045,28 @@ export function AppPeople() {
           <span className="inline-flex items-center rounded-xl bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700 border border-violet-200 shadow-sm">
             {totalGroupsCount} Groups
           </span>
+          <span className="inline-flex items-center rounded-xl bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200 shadow-sm animate-fadeIn">
+            {totalBusinessCardsCount} Business Cards
+          </span>
         </div>
       </div>
 
       {/* Main Content Area */}
       {selectedContactId ? (
         renderContactDetailsView()
+      ) : showVerificationScreen ? (
+        renderVerificationScreen()
       ) : (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm animate-fadeIn">
           {/* Header toolbar for listing */}
           <div className="flex items-center justify-between flex-wrap gap-4 mb-5 pb-4 border-b border-slate-100">
             {/* Tab switcher buttons */}
-            <div className="flex bg-slate-100 rounded-xl p-1 max-w-xs border border-slate-200/50 w-full sm:w-auto">
+            <div className="flex bg-slate-100 rounded-xl p-1 max-w-sm border border-slate-200/50 w-full sm:w-auto">
               {[
                 { key: "new", label: "New" },
                 { key: "contacts", label: "Contacts" },
-                { key: "groups", label: "Groups" }
+                { key: "groups", label: "Groups" },
+                { key: "cards", label: "Business Cards" }
               ].map(t => (
                 <button
                   key={t.key}
@@ -864,6 +1341,25 @@ export function AppPeople() {
                         ) : (
                           <LuMessageCircle className="h-5 w-5 text-slate-300 fill-slate-50 shrink-0" title="Not registered on WhatsApp" />
                         )}
+                        {c.cardImageUrl && (
+                          <button
+                            onClick={() => {
+                              setSelectedCardUrl(c.cardImageUrl);
+                              setShowCardModal(true);
+                            }}
+                            className="text-slate-400 hover:text-amber-500 p-1.5 transition-colors rounded-full hover:bg-amber-50"
+                            title="View Business Card"
+                          >
+                            <LuImage className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleSyncSingleContact(c.id)}
+                          className="text-slate-400 hover:text-emerald-600 p-1.5 transition-colors rounded-full hover:bg-emerald-50"
+                          title="Sync to WhatsAI"
+                        >
+                          <LuRefreshCw className="h-3.5 w-3.5" />
+                        </button>
                         <button
                           onClick={() => onDeleteContact(c.id)}
                           className="text-slate-400 hover:text-red-500 p-1.5 transition-colors rounded-full hover:bg-red-50"
@@ -955,6 +1451,159 @@ export function AppPeople() {
               </div>
             </div>
           )}
+
+          {/* --- 4. BUSINESS CARDS TAB --- */}
+          {peopleTab === "cards" && (
+            <div className="space-y-4">
+              {/* Triggers Zone */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                {/* Upload Card Box (Gallery with Multi-select) */}
+                <label className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/10 rounded-2xl p-6 cursor-pointer transition-all duration-200 text-center hover:shadow-inner group">
+                  <span className="text-3xl group-hover:scale-110 transition-transform">🖼️</span>
+                  <span className="mt-2 text-xs font-black text-slate-800 uppercase tracking-wider">Upload Card Images</span>
+                  <span className="mt-0.5 text-[10px] text-slate-400 font-semibold">Select multiple cards from gallery</span>
+                  <input 
+                    type="file" 
+                    multiple 
+                    accept="image/*" 
+                    className="hidden" 
+                    onChange={handleCardFileChange} 
+                  />
+                </label>
+
+                {/* Camera Capture Box */}
+                <label className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/10 rounded-2xl p-6 cursor-pointer transition-all duration-200 text-center hover:shadow-inner group">
+                  <span className="text-3xl group-hover:scale-110 transition-transform">📸</span>
+                  <span className="mt-2 text-xs font-black text-slate-800 uppercase tracking-wider">Camera Scan</span>
+                  <span className="mt-0.5 text-[10px] text-slate-400 font-semibold">Capture card via device camera</span>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    capture="environment" 
+                    className="hidden" 
+                    onChange={handleCardFileChange} 
+                  />
+                </label>
+              </div>
+
+              {/* Loader parsing state for cards queue */}
+              {scanLoading && (
+                <div className="py-8 text-center space-y-3 bg-slate-50 border border-slate-200/50 rounded-2xl p-4 animate-pulse">
+                  <div className="relative w-12 h-12 mx-auto flex items-center justify-center">
+                    <div className="absolute inset-0 rounded-full border-4 border-slate-100 border-t-emerald-500 animate-spin"></div>
+                    <span className="text-sm">📸</span>
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">{scanProgress}</h4>
+                    <p className="text-[9px] text-slate-400 mt-1 font-semibold">AI is processing image layout extraction...</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Error Message */}
+              {scanError && (
+                <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-xs font-semibold text-red-700 animate-fadeIn leading-relaxed">
+                  ⚠️ {scanError}
+                </div>
+              )}
+
+              {/* Business Cards Directory List */}
+              <div className="space-y-3 pt-2">
+                <span className="text-xs font-black text-slate-500 uppercase tracking-wider">Scanned Business Cards ({totalBusinessCardsCount})</span>
+                {peopleLoading && businessCards.length === 0 ? (
+                  <div className="py-8 text-center"><LuRefreshCw className="h-5 w-5 animate-spin mx-auto text-emerald-500" /></div>
+                ) : businessCards.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic py-4 text-center animate-fadeIn">No business card contacts found. Upload card above to add!</p>
+                ) : (
+                  businessCards.map(c => (
+                    <div key={c.id} className="flex items-center justify-between border-b border-slate-50 pb-3 last:border-0 last:pb-0 hover:bg-slate-50/50 rounded-xl p-2 transition-all">
+                      <div 
+                        onClick={() => onOpenContactDetails(c.id)}
+                        className="flex items-center gap-3 cursor-pointer group"
+                      >
+                        <div className="h-10 w-10 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center font-bold text-slate-600 text-sm shadow-inner">
+                          {c.avatar ? (
+                            <img src={c.avatar} alt={c.name} className="h-full w-full object-cover" />
+                          ) : (
+                            c.name.charAt(0)
+                          )}
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-bold text-slate-800 group-hover:text-emerald-500 group-hover:underline transition-all">{c.name}</h4>
+                          <p className="text-xs text-slate-400 flex items-center gap-1.5 flex-wrap">
+                            <span>{c.phone} {c.email ? `• ${c.email}` : ""}</span>
+                            {c.company && <span className="text-[10px] text-slate-500 font-bold bg-slate-100 px-1.5 py-0.5 rounded shadow-xs">{c.company}</span>}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {c.cardImageUrl && (
+                          <button
+                            onClick={() => {
+                              setSelectedCardUrl(c.cardImageUrl);
+                              setShowCardModal(true);
+                            }}
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-100 transition shadow-sm"
+                            title="View Business Card"
+                          >
+                            <LuImage className="h-4 w-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleSyncSingleContact(c.id)}
+                          className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-100 transition shadow-sm"
+                          title="Sync to WhatsAI"
+                        >
+                          <LuRefreshCw className="h-4 w-4" />
+                        </button>
+                        <button 
+                          onClick={() => onDeleteContact(c.id)}
+                          className="flex h-8 w-8 items-center justify-center rounded-full bg-red-50 text-red-600 hover:bg-red-100 border border-red-100 transition shadow-sm"
+                          title="Delete Contact"
+                        >
+                          <LuTrash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+                {hasMoreBusinessCards && (
+                  <div className="pt-4 pb-2 text-center animate-fadeIn">
+                    <button
+                      type="button"
+                      onClick={onLoadMoreBusinessCards}
+                      className="px-5 py-2 text-xs font-black bg-emerald-600 hover:bg-emerald-700 border border-slate-950/10 text-white rounded-xl transition shadow-md"
+                    >
+                      Load More Cards
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showCardModal && selectedCardUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-xl space-y-4 m-4 relative animate-scaleUp">
+            <button
+              onClick={() => {
+                setShowCardModal(false);
+                setSelectedCardUrl(null);
+              }}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-all"
+            >
+              <LuX className="h-5 w-5" />
+            </button>
+            <div>
+              <h3 className="text-base font-black text-slate-900">Reference Scanned Card</h3>
+              <p className="text-xs text-slate-500 mt-1">Scanned reference card details.</p>
+            </div>
+            <div className="flex items-center justify-center border border-slate-100 rounded-xl overflow-hidden bg-slate-50 p-2 shadow-inner">
+              <img src={selectedCardUrl} alt="Business Card" className="max-h-[300px] w-auto object-contain rounded-lg shadow-sm" />
+            </div>
+          </div>
         </div>
       )}
     </div>

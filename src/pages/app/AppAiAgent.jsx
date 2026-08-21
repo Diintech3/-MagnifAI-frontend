@@ -1934,7 +1934,7 @@ export function AppAiAgent({ mode = "business" }) {
       let isEnglish = /English|Answer/i.test(rawText);
       
       const cleanText = rawText
-        .replace(/^\s*(?:[❓✅]|हिंदी|Hindi|English|उत्तर|Answer|Question\d*|Answer\d*|Q\d*|A\d*)\s*[\.:\-]?\s*/i, "")
+        .replace(/^\s*(?:[❓✅]|हिंदी|Hindi|English|उत्तर|Answer\b|Question\d*\b|Answer\d*\b|Q\d+|A\d+|Q(?=[\.:\-\s])|A(?=[\.:\-\s]))\s*[\.:\-]?\s*/i, "")
         .trim();
 
       if (current.type === "❓") {

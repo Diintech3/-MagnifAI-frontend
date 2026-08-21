@@ -17,6 +17,7 @@ import { AppDistributionQueue } from "./app/AppDistributionQueue";
 import { AppCalendar } from "./app/AppCalendar";
 import { AppPopularityIndex } from "./app/AppPopularityIndex";
 import { AppPeople } from "./app/AppPeople";
+import { AppPromote } from "./app/AppPromote";
 import { AppContents } from "./app/AppContents";
 import { AppCreateContent } from "./app/AppCreateContent";
 import { AppContentDetail } from "./app/AppContentDetail";
@@ -44,6 +45,7 @@ const FC_NAV = [
   { to: "/app/daily-planner", label: "Daily Planner", headerTitle: "Daily Planner",         icon: "calendar" },
   { to: "/app/ai-agent",      label: "AI Agent",     headerTitle: "AI Agent Management",   icon: "bot" },
   { to: "/app/popularity",    label: "Popularity",   headerTitle: "CEO Popularity Index", icon: "popularity" },
+  { to: "/app/promote",       label: "Promote",      headerTitle: "Promote & Campaigns",   icon: "ads" },
   { to: "/app/tools",         label: "Tools",        headerTitle: "Tools Hub",            icon: "matrix" },
 ];
 
@@ -187,6 +189,7 @@ export function AppDashboard() {
         <Route path="calendar"         element={<AppCalendar />} />
         <Route path="popularity"       element={<AppPopularityIndex />} />
         <Route path="people"           element={<AppPeople />} />
+        <Route path="promote"          element={<AppPromote />} />
         <Route path="social"           element={<AppSocialMedia />} />
         <Route path="news"             element={<AppNews />} />
         <Route path="digital-mentions" element={<AppDigitalMentions />} />

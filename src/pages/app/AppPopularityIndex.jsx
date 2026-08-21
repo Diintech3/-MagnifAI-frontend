@@ -80,6 +80,7 @@ export function AppPopularityIndex() {
   const [contacts, setContacts] = useState([]);
   const [newlyJoined, setNewlyJoined] = useState([]);
   const [groups, setGroups] = useState([]);
+  const [businessCards, setBusinessCards] = useState([]);
   const [peopleSearch, setPeopleSearch] = useState("");
   const [selectedContactIds, setSelectedContactIds] = useState([]);
   
@@ -118,14 +119,16 @@ export function AppPopularityIndex() {
   const loadPeople = useCallback(async () => {
     setPeopleLoading(true);
     try {
-      const [contactsData, newMembersData, groupsData] = await Promise.all([
+      const [contactsData, newMembersData, groupsData, businessCardsData] = await Promise.all([
         api(`/api/app/people/contacts?page=1&limit=5&search=${encodeURIComponent(peopleSearch)}`, { token }),
         api("/api/app/people/new", { token }),
-        api("/api/app/people/groups", { token })
+        api("/api/app/people/groups", { token }),
+        api(`/api/app/people/contacts?page=1&limit=5&category=Business%20Person&search=${encodeURIComponent(peopleSearch)}`, { token })
       ]);
       setContacts(contactsData?.contacts || []);
       setNewlyJoined(newMembersData?.newMembers || []);
       setGroups(groupsData?.groups || []);
+      setBusinessCards(businessCardsData?.contacts || []);
     } catch (e) {
       console.error("Failed to load People data:", e.message);
     } finally {
@@ -397,6 +400,18 @@ export function AppPopularityIndex() {
     }
   }, [activeTab, loadPings]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get("youtube_connected") === "true") {
+      toastSuccess("YouTube channel connected successfully!");
+      navigate(location.pathname, { replace: true });
+      loadSocial();
+    } else if (params.get("youtube_error")) {
+      toastError(decodeURIComponent(params.get("youtube_error")));
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location.search, location.pathname, navigate, loadSocial]);
+
   async function onSavePlatform(e) {
     e.preventDefault();
     setSavingPlatform(true);
@@ -424,6 +439,22 @@ export function AppPopularityIndex() {
       loadSocial();
     } catch (err) {
       toastFromError(err, "Failed to disconnect");
+    }
+  }
+
+  async function onConnectYouTube() {
+    setSavingPlatform(true);
+    try {
+      const res = await api("/api/app/social/youtube/auth-url", { token });
+      if (res.url) {
+        window.location.href = res.url;
+      } else {
+        toastError("Failed to generate Google connection link.");
+      }
+    } catch (err) {
+      toastFromError(err, "Failed to connect YouTube");
+    } finally {
+      setSavingPlatform(false);
     }
   }
 
@@ -1113,7 +1144,15 @@ export function AppPopularityIndex() {
               <h3 className="text-base font-black text-slate-800 mb-1 capitalize">{activePlatform} Not Connected</h3>
               <p className="text-xs text-slate-500 mb-6 max-w-sm mx-auto">Connect your {activePlatform} account to start tracking live analytics, followers growth, and post reach.</p>
               
-              {showForm ? (
+              {activePlatform === "youtube" ? (
+                <button
+                  onClick={onConnectYouTube}
+                  disabled={savingPlatform}
+                  className="inline-flex items-center gap-2 rounded-xl bg-amber-400 hover:bg-amber-500 px-5 py-2.5 text-xs font-black text-slate-900 border border-slate-900/10 shadow-sm transition disabled:opacity-50"
+                >
+                  <LuLink className="h-4 w-4" /> {savingPlatform ? "Redirecting..." : "Connect YouTube with Google"}
+                </button>
+              ) : showForm ? (
                 <form onSubmit={onSavePlatform} className="max-w-md mx-auto text-left bg-slate-50/50 border border-slate-100 p-6 rounded-2xl space-y-4 shadow-sm">
                   <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider border-b border-slate-200 pb-2 mb-2">Connection Settings</h4>
                   {(PLATFORM_FIELDS[activePlatform] || []).map((f) => (
@@ -1189,11 +1228,12 @@ export function AppPopularityIndex() {
         </div>
 
         {/* Tab switcher buttons */}
-        <div className="flex bg-slate-100 rounded-xl p-1 mb-5 max-w-xs border border-slate-200/50">
+        <div className="flex bg-slate-100 rounded-xl p-1 mb-5 max-w-sm border border-slate-200/50">
           {[
             { key: "new", label: "New" },
             { key: "contacts", label: "Contacts" },
-            { key: "groups", label: "Groups" }
+            { key: "groups", label: "Groups" },
+            { key: "cards", label: "Business Cards" }
           ].map(t => (
             <button
               key={t.key}
@@ -1332,6 +1372,42 @@ export function AppPopularityIndex() {
                       </div>
                     </div>
                   </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* --- 4. BUSINESS CARDS TAB (5 items preview) --- */}
+        {peopleTab === "cards" && (
+          <div className="space-y-3">
+            {businessCards.length === 0 ? (
+              <p className="text-xs text-slate-400 italic py-4 text-center">No business cards found.</p>
+            ) : (
+              businessCards.slice(0, 5).map(c => (
+                <div key={c.id} className="flex items-center justify-between border-b border-slate-50 pb-3 last:border-0 last:pb-0 hover:bg-slate-50/50 rounded-lg p-1 transition-colors">
+                  <div 
+                    onClick={() => navigate(`${basePath}/people`, { state: { selectedContactId: c.id } })}
+                    className="flex items-center gap-3 cursor-pointer group"
+                  >
+                    <div className="h-9 w-9 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center font-bold text-slate-600 text-xs">
+                      {c.avatar ? (
+                        <img src={c.avatar} alt={c.name} className="h-full w-full object-cover" />
+                      ) : (
+                        c.name.charAt(0)
+                      )}
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800 group-hover:text-amber-500 group-hover:underline transition-all">{c.name}</h4>
+                      <p className="text-xs text-slate-400 flex items-center gap-1.5 flex-wrap">
+                        <span>{c.phone} {c.email ? `• ${c.email}` : ""}</span>
+                        {c.company && <span className="text-[10px] text-slate-500 font-bold bg-slate-100 px-1.5 py-0.5 rounded">{c.company}</span>}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-700 border border-emerald-200">
+                    💼 Business Card
+                  </span>
                 </div>
               ))
             )}
