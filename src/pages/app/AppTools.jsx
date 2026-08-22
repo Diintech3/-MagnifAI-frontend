@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../../auth/AuthProvider";
-import { LuSparkles, LuSend, LuCalendar, LuTarget, LuShare2, LuNewspaper, LuRadio, LuFileText, LuBox, LuFolder } from "react-icons/lu";
+import { LuSparkles, LuSend, LuCalendar, LuTarget, LuShare2, LuNewspaper, LuRadio, LuFileText, LuBox, LuFolder, LuVideo } from "react-icons/lu";
 
 const CEO_TOOLS = [
   { to: "/content-tools", label: "Content Tools",     desc: "AI-powered content generation",     Icon: LuSparkles,  color: "from-violet-500 to-purple-600" },
@@ -11,6 +11,7 @@ const CEO_TOOLS = [
   { to: "/news",          label: "News",              desc: "Latest industry news",              Icon: LuNewspaper, color: "from-blue-500 to-indigo-500" },
   { to: "/digital-mentions", label: "AI Mentions",    desc: "Online sentiment & mentions",       Icon: LuRadio,     color: "from-indigo-500 to-violet-600" },
   { to: "/contents",      label: "Contents",          desc: "All created contents",              Icon: LuFileText,  color: "from-amber-500 to-orange-600" },
+  { to: "/content-pool",  label: "Content Pool",      desc: "All generated & AI-edited videos",  Icon: LuVideo,     color: "from-purple-500 to-indigo-600" },
 ];
 
 const FOUNDER_TOOLS = [

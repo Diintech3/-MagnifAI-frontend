@@ -22,7 +22,11 @@ import {
   LuX,
   LuBot,
   LuSparkles,
-  LuTrash2
+  LuTrash2,
+  LuPlay,
+  LuUserCheck,
+  LuPause,
+  LuCoins
 } from "react-icons/lu";
 
 export function AppPromote() {
@@ -190,6 +194,9 @@ export function AppPromote() {
   const [adFilter, setAdFilter] = useState("all");
   const [selectedAnalytics, setSelectedAnalytics] = useState(null);
   const [showAnalyticsModal, setShowAnalyticsModal] = useState(false);
+  const [adsAnalyticsSummary, setAdsAnalyticsSummary] = useState(null);
+  const [adsAnalyticsLoading, setAdsAnalyticsLoading] = useState(false);
+  const [overviewChannel, setOverviewChannel] = useState("meta");
 
   // Handle Save Manual API Key
   const handleSaveManualApiKey = async (e) => {
@@ -214,6 +221,21 @@ export function AppPromote() {
       setSavingManualKey(false);
     }
   };
+
+  // Load Ads Analytics Summary
+  const loadAdsAnalyticsSummary = useCallback(async () => {
+    setAdsAnalyticsLoading(true);
+    try {
+      const res = await api("/api/app/ads/analytics-summary", { token });
+      if (res && res.success && res.data) {
+        setAdsAnalyticsSummary(res.data);
+      }
+    } catch (e) {
+      console.warn("Failed to load ads analytics summary:", e.message);
+    } finally {
+      setAdsAnalyticsLoading(false);
+    }
+  }, [token]);
 
   // Load Ads Configuration
   const loadAdsConfig = useCallback(async () => {
@@ -442,8 +464,9 @@ export function AppPromote() {
     } else if (activeTab === "ads") {
       loadAdsConfig();
       loadAdsCampaigns();
+      loadAdsAnalyticsSummary();
     }
-  }, [activeTab, subTab, loadConversations, loadWaGroups, loadWaCampaigns, loadTemplates, loadDirectoryContacts, loadAdsConfig, loadAdsCampaigns]);
+  }, [activeTab, subTab, loadConversations, loadWaGroups, loadWaCampaigns, loadTemplates, loadDirectoryContacts, loadAdsConfig, loadAdsCampaigns, loadAdsAnalyticsSummary]);
 
   // Trigger messages loading when active chat changes
   useEffect(() => {
@@ -1630,6 +1653,145 @@ export function AppPromote() {
                   >
                     <LuPlus className="h-4 w-4" /> Launch New Campaign
                   </button>
+                </div>
+              </div>
+
+              {/* Ads Overview Section aligned with Mobile Reference */}
+              <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-6">
+                <div>
+                  <h4 className="text-sm font-black text-slate-900 font-sans tracking-wide">Ads Overview</h4>
+                </div>
+
+                {/* Main Overview Stats Row */}
+                <div className="grid grid-cols-4 gap-4 py-4 border-b border-slate-100">
+                  <div className="flex flex-col items-center justify-center text-center space-y-2">
+                    <div className="h-10 w-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-inner">
+                      <LuPlay className="h-5 w-5 fill-current" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Running</span>
+                      <span className="text-base font-black text-slate-900">{adCampaigns.filter(c => c.status === "active").length}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-center justify-center text-center space-y-2">
+                    <div className="h-10 w-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center shadow-inner">
+                      <LuUserCheck className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Completed</span>
+                      <span className="text-base font-black text-slate-900">{adCampaigns.filter(c => c.status === "completed").length}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-center justify-center text-center space-y-2">
+                    <div className="h-10 w-10 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center shadow-inner">
+                      <LuPause className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Paused</span>
+                      <span className="text-base font-black text-slate-900">{adCampaigns.filter(c => c.status === "paused").length}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-center justify-center text-center space-y-2">
+                    <div className="h-10 w-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center shadow-inner">
+                      <LuCoins className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Spent</span>
+                      <span className="text-base font-black text-slate-900">₹{( (adsAnalyticsSummary?.metaSummary?.totalSpend || 0) + (adsAnalyticsSummary?.googleSummary?.totalSpend || 0) )}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sub-channel Switcher & Detail Card */}
+                <div className="space-y-4">
+                  {/* Platform Sub-tabs */}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setOverviewChannel("meta")}
+                      className={`px-5 py-2 text-xs font-black rounded-xl border transition-all ${
+                        overviewChannel === "meta"
+                          ? "bg-amber-400 border-amber-400 text-slate-900 shadow-sm"
+                          : "bg-slate-50 border-slate-200 text-slate-400 hover:text-slate-600"
+                      }`}
+                    >
+                      Meta Ads
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOverviewChannel("google")}
+                      className={`px-5 py-2 text-xs font-black rounded-xl border transition-all ${
+                        overviewChannel === "google"
+                          ? "bg-amber-400 border-amber-400 text-slate-900 shadow-sm"
+                          : "bg-slate-50 border-slate-200 text-slate-400 hover:text-slate-600"
+                      }`}
+                    >
+                      Google Ads
+                    </button>
+                  </div>
+
+                  {/* Channel stats card box */}
+                  <div className="rounded-2xl bg-slate-50/50 border border-slate-200/60 p-5 space-y-5">
+                    {overviewChannel === "meta" ? (
+                      <>
+                        <div className="grid grid-cols-4 gap-4 text-center">
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Reach</span>
+                            <span className="text-sm font-black text-slate-900">{adsAnalyticsSummary?.metaSummary?.totalReach || 0}</span>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Clicks</span>
+                            <span className="text-sm font-black text-slate-900">{adsAnalyticsSummary?.metaSummary?.totalClicks || 0}</span>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">CTR</span>
+                            <span className="text-sm font-black text-slate-900">{adsAnalyticsSummary?.metaSummary?.ctr ? `${adsAnalyticsSummary.metaSummary.ctr}%` : "0.00%"}</span>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Total Spent</span>
+                            <span className="text-sm font-black text-slate-900">₹{adsAnalyticsSummary?.metaSummary?.totalSpend || 0}</span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 justify-center pt-2">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-white border border-slate-200 text-slate-600">
+                            📸 Instagram
+                          </span>
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-white border border-slate-200 text-slate-600">
+                            👤 Facebook
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-4 gap-4 text-center">
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Impressions</span>
+                            <span className="text-sm font-black text-slate-900">{adsAnalyticsSummary?.googleSummary?.totalImpressions || 0}</span>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Clicks</span>
+                            <span className="text-sm font-black text-slate-900">{adsAnalyticsSummary?.googleSummary?.totalClicks || 0}</span>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Conversions</span>
+                            <span className="text-sm font-black text-slate-900">{adsAnalyticsSummary?.googleSummary?.totalReach || 0}</span>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Total Spent</span>
+                            <span className="text-sm font-black text-slate-900">₹{adsAnalyticsSummary?.googleSummary?.totalSpend || 0}</span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 justify-center pt-2">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-white border border-slate-200 text-slate-600">
+                            🔍 Search Ads
+                          </span>
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-white border border-slate-200 text-slate-600">
+                            🖼️ Display Ads
+                          </span>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
 

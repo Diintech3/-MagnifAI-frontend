@@ -43,6 +43,7 @@ import {
   LuBuilding2,
   LuTarget,
   LuBot,
+  LuPhone,
 } from "react-icons/lu";
 import { RiAdminLine } from "react-icons/ri";
 
@@ -91,6 +92,7 @@ export const NAV_ICONS = {
   campaign: wrap(LuTarget),
   globe: wrap(LuGlobe),
   bot: wrap(LuBot),
+  phone: wrap(LuPhone),
 };
 
 export function getNavIcon(key) {

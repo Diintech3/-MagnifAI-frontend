@@ -27,6 +27,7 @@ import { ChangeMakerDashboard } from "./app/ChangeMakerDashboard";
 import { FounderDashboard } from "./app/FounderDashboard";
 import { useAuth } from "../auth/AuthProvider";
 import { AppTools } from "./app/AppTools";
+import { AppContentPool } from "./app/AppContentPool";
 import { AppPersonalityComingSoon } from "./app/AppPersonalityComingSoon";
 import { AppPersonalAIComingSoon } from "./app/AppPersonalAIComingSoon";
 import { AppScriptsApproval } from "./app/AppScriptsApproval";
@@ -35,6 +36,8 @@ import { CategoryManagement } from "./app/CategoryManagement";
 import { AppAiAgent } from "./app/AppAiAgent";
 import { AppDailyPlanner } from "./app/AppDailyPlanner";
 import { AppDailyPlannerAnalysis } from "./app/AppDailyPlannerAnalysis";
+import { AppInboundTelephony } from "./app/AppInboundTelephony";
+import { AppOutboundTelephony } from "./app/AppOutboundTelephony";
 
 // ── Nav configs ────────────────────────────────────────────────────────────────
 
@@ -47,6 +50,16 @@ const FC_NAV = [
   { to: "/app/popularity",    label: "Popularity",   headerTitle: "CEO Popularity Index", icon: "popularity" },
   { to: "/app/promote",       label: "Promote",      headerTitle: "Promote & Campaigns",   icon: "ads" },
   { to: "/app/tools",         label: "Tools",        headerTitle: "Tools Hub",            icon: "matrix" },
+  {
+    id: "phone",
+    label: "Phone",
+    headerTitle: "Telephony Center",
+    icon: "phone",
+    children: [
+      { to: "/app/phone/inbound", label: "Inbound", headerTitle: "Inbound Telephony" },
+      { to: "/app/phone/outbound", label: "Outbound", headerTitle: "Outbound Telephony" }
+    ]
+  },
 ];
 
 const MANAGER_NAV = [
@@ -74,6 +87,25 @@ const FOUNDER_NAV = [
   { to: "/app/tools",         label: "Tools",        headerTitle: "Tools Hub",            icon: "matrix" },
 ];
 
+// Helper to safely replace paths in flat and nested navigation structures
+function mapNavItems(navItems, basePath) {
+  return navItems.map(item => {
+    if (item.children) {
+      return {
+        ...item,
+        children: item.children.map(child => ({
+          ...child,
+          to: child.to ? child.to.replace("/app", basePath) : child.to
+        }))
+      };
+    }
+    return {
+      ...item,
+      to: item.to ? item.to.replace("/app", basePath) : item.to
+    };
+  });
+}
+
 // ── Dashboard selector ─────────────────────────────────────────────────────────
 
 export function AppDashboard() {
@@ -91,11 +123,11 @@ export function AppDashboard() {
   const loginPath = basePath === "/ceo" ? "/ceo/login" : "/app/login";
 
   // Map nav paths dynamically to basePath
-  const fcNav = FC_NAV.map(item => ({ ...item, to: item.to.replace("/app", basePath) }));
-  const managerNav = MANAGER_NAV.map(item => ({ ...item, to: item.to.replace("/app", basePath) }));
-  const spiritualNav = SPIRITUAL_NAV.map(item => ({ ...item, to: item.to.replace("/app", basePath) }));
-  const changemakerNav = CHANGEMAKER_NAV.map(item => ({ ...item, to: item.to.replace("/app", basePath) }));
-  const founderNav = FOUNDER_NAV.map(item => ({ ...item, to: item.to.replace("/app", basePath) }));
+  const fcNav = mapNavItems(FC_NAV, basePath);
+  const managerNav = mapNavItems(MANAGER_NAV, basePath);
+  const spiritualNav = mapNavItems(SPIRITUAL_NAV, basePath);
+  const changemakerNav = mapNavItems(CHANGEMAKER_NAV, basePath);
+  const founderNav = mapNavItems(FOUNDER_NAV, basePath);
 
   // Founder dashboard
   if (dashboardType === "founder") {
@@ -199,12 +231,15 @@ export function AppDashboard() {
         <Route path="contents/:id"       element={<AppContentDetail />} />
         <Route path="settings"         element={<AppSettings />} />
         <Route path="tools"            element={<AppTools />} />
+        <Route path="content-pool"     element={<AppContentPool />} />
         <Route path="ugc-prompter"     element={<AppScriptsApproval />} />
         <Route path="personality"      element={<AppPersonalityComingSoon />} />
         <Route path="personal-ai"      element={<AppAiAgent mode="personal" />} />
         <Route path="daily-planner"    element={<AppDailyPlanner />} />
         <Route path="daily-planner/analysis" element={<AppDailyPlannerAnalysis />} />
         <Route path="ai-agent"         element={<AppAiAgent mode="business" />} />
+        <Route path="phone/inbound"    element={<AppInboundTelephony />} />
+        <Route path="phone/outbound"   element={<AppOutboundTelephony />} />
         <Route path="help"             element={<HelpPage />} />
         <Route path="*"                element={<Navigate to={basePath} replace />} />
       </Routes>
